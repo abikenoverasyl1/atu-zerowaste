@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="{{ 'kk' if lang == 'kk' else 'ru' }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#FFFFFF" id="themeColor">
+  <title>{% block title %}ATU Zero Waste{% endblock %}</title>
+  <script>
+    // Тема до отрисовки страницы, чтобы не «мигало»: выбор пользователя, иначе — как в системе
+    (function () {
+      var t = null; try { t = localStorage.getItem('theme'); } catch (e) {}
+      if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Unbounded:wght@500;600&display=swap" rel="stylesheet">
+  <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+</head>
+<body class="{% block body_class %}{% endblock %}">
+{% macro prefs() %}
+  <div class="prefs">
+    <div class="seg" role="group" aria-label="{{ _('Язык') }}">
+      <a class="{{ 'on' if lang == 'ru' }}" href="{{ url_for('set_lang', code='ru') }}" hreflang="ru">РУС</a>
+      <a class="{{ 'on' if lang == 'kk' }}" href="{{ url_for('set_lang', code='kk') }}" hreflang="kk">ҚАЗ</a>
+    </div>
+    <button type="button" class="icon-btn js-theme" aria-label="{{ _('Сменить тему') }}" title="{{ _('Сменить тему') }}">🌙</button>
+  </div>
+{% endmacro %}
+{% macro nav_items() %}
+  {% set r = g.user['role'] %}
+  {% set ep = request.endpoint %}
+  {% if r == 'responsible' %}
+    <a class="nav-link {{ 'active' if ep == 'form' }}" href="{{ url_for('index') }}"><span class="ico">⚖️</span><span>{{ _('Сегодня') }}</span></a>
+    <a class="nav-link {{ 'active' if ep == 'history' }}" href="{{ url_for('history') }}"><span class="ico">🗓</span><span>{{ _('История') }}</span></a>
+  {% endif %}
+  {% if r in ('reviewer', 'admin') %}
+    <a class="nav-link {{ 'active' if ep in ('review_list', 'review') }}" href="{{ url_for('review_list') }}"><span class="ico">📥</span><span>{{ _('Входящие') }}</span>
+      {% if pending_count %}<span class="nav-badge">{{ pending_count }}</span>{% endif %}</a>
+  {% endif %}
+  {% if r in ('reviewer', 'admin', 'management') %}
+    <a class="nav-link {{ 'active' if ep == 'dashboard' }}" href="{{ url_for('dashboard') }}"><span class="ico">📈</span><span>{{ _('Обзор') }}</span></a>
+    <a class="nav-link {{ 'active' if ep == 'report' }}" href="{{ url_for('report') }}"><span class="ico">📄</span><span>{{ _('Отчёты') }}</span></a>
+    <a class="nav-link {{ 'active' if ep == 'registry' }}" href="{{ url_for('registry') }}"><span class="ico">🗂</span><span>{{ _('Реестр') }}</span></a>
+  {% endif %}
+  <a class="nav-link {{ 'active' if ep == 'surplus' }}" href="{{ url_for('surplus') }}"><span class="ico">🥐</span><span>{{ _('Излишки') }}</span></a>
+  {% if r == 'admin' %}
+    <a class="nav-link {{ 'active' if ep in ('admin', 'qr_codes') }}" href="{{ url_for('admin') }}"><span class="ico">⚙️</span><span>{{ _('Настройки') }}</span></a>
+  {% endif %}
+{% endmacro %}
+
+{% if g.user and not solo %}
+<div class="app">
+  <aside class="side">
+    <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">♻</span>ATU Zero Waste</a>
+    {{ nav_items() }}
+    <div class="side-foot">
+      <div style="margin-bottom:12px">{{ prefs() }}</div>
+      <div>{{ _(g.user['name']) }}</div>
+      <div class="muted" style="font-size:.85rem">{{ _(ROLES[g.user['role']]) }}</div>
+      <a href="{{ url_for('logout') }}">{{ _('Выйти') }}</a>
+    </div>
+  </aside>
+  <div>
+    <header class="topbar">
+      <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">♻</span>Zero Waste</a>
+      <div style="display:flex; gap:6px; align-items:center">{{ prefs() }}
+        <a class="icon-btn" href="{{ url_for('logout') }}" aria-label="{{ _('Выйти') }}" title="{{ _('Выйти') }}">⎋</a></div>
+    </header>
+    <main class="main {% block main_class %}{% endblock %}">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <nav class="tabbar">{{ nav_items() }}</nav>
+</div>
+{% else %}
+<div class="solo-prefs">{{ prefs() }}</div>
+<div class="solo">{% block solo %}<main class="main">{{ self.content() }}</main>{% endblock %}</div>
+{% endif %}
+
+{% with msgs = get_flashed_messages(with_categories=true) %}
+  {% if msgs %}<div class="toasts" role="status">{% for cat, m in msgs %}<div class="toast {{ cat }}">{{ m }}</div>{% endfor %}</div>{% endif %}
+{% endwith %}
+<script>
+  // Переключатель темы: запоминаем выбор, обновляем иконку и цвет строки браузера
+  (function () {
+    const root = document.documentElement;
+    const sync = () => {
+      const dark = root.dataset.theme === 'dark';
+      document.querySelectorAll('.js-theme').forEach(b => b.textContent = dark ? '☀️' : '🌙');
+      document.getElementById('themeColor').content = dark ? '#172019' : '#FFFFFF';
+    };
+    document.querySelectorAll('.js-theme').forEach(b => b.onclick = () => {
+      root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      try { localStorage.setItem('theme', root.dataset.theme); } catch (e) {}
+      sync(); window.dispatchEvent(new Event('themechange'));
+    });
+    sync();
+  })();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

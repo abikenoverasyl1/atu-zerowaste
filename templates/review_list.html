@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Входящие') }}{% endblock %}
+{% block content %}
+{% set WD = ['по воскресеньям', 'по понедельникам', 'по вторникам', 'по средам', 'по четвергам', 'по пятницам', 'по субботам'] %}
+<header class="page-head">
+  <div>
+    <h1>{{ _('Входящие') }}</h1>
+    <p class="muted" id="inboxSub">{% if active %}{{ _('Ждут проверки: {n}.', n=active|length) }}{% else %}{{ _('Все отчёты проверены.') }}{% endif %} {{ _('Обычные отчёты система принимает сама, сюда попадают только те, где нужен ваш взгляд.') }}</p>
+  </div>
+  <div class="seg" id="tabs">
+    <button class="{{ 'on' if tab == 'inbox' }}" data-t="inbox">{{ _('Ждут проверки') }} · {{ active|length }}</button>
+    <button class="{{ 'on' if tab == 'auto' }}" data-t="auto">{{ _('Принято системой') }} · {{ auto|length }}</button>
+  </div>
+</header>
+
+<div class="grid-2 tab-pane" id="pane-inbox" {{ "hidden" if tab != "inbox" }}>
+  <div id="inbox">
+    {% for c in active %}
+      {% set r = c.r %}
+      <article class="inbox-card" data-id="{{ r['id'] }}">
+        <div class="inbox-head">
+          <div>
+            <h2>{{ _(r['org']) }}</h2>
+            <small class="num">{{ r['date'][8:10] }}.{{ r['date'][5:7] }}, {{ _('всего {kg} кг', kg=fmt_num(r['total'])) }}{% if r['note'] %}, «{{ _(r['note']) }}»{% endif %}</small>
+          </div>
+          <span class="pill st-{{ r['status'] }}">{{ _(STATUSES[r['status']]) }}</span>
+        </div>
+        <div class="inbox-items">
+          {% for i in c['items'] %}
+            <span class="chip {{ 'warn' if i.high }}" {% if i.high %}title="{{ _('Обычно около {n} {u}', n=fmt_num(i.norm), u=_(i.unit)) }}"{% endif %}>
+              {{ icon(i.name) }} {{ _(i.name) }}: <b class="num">{{ fmt_num(i.qty) }} {{ _(i.unit) }}</b>{% if i.high %} — {{ _('в {k} раза больше обычного', k=fmt_num(i.qty / i.norm)) }}{% endif %}{% if i.surplus %}, 🥐 {{ _('отдали {n}', n=fmt_num(i.surplus)) }}{% endif %}
+            </span>
+          {% endfor %}
+        </div>
+        <form method="post" action="{{ url_for('review', rid=r['id']) }}" class="js-review">
+          <div class="inbox-actions">
+            <button class="btn btn-primary" name="action" value="accept">{{ _('Принять') }}</button>
+            <button class="btn btn-danger" type="button" data-open-return>{{ _('Вернуть') }}</button>
+            <a class="btn btn-ghost" href="{{ url_for('review', rid=r['id']) }}">{{ _('Подробнее') }}</a>
+          </div>
+          <div class="return-box">
+            <textarea class="input" name="comment" placeholder="{{ _('Что исправить? Например: сыворотку указывайте в литрах') }}"></textarea>
+            <button class="btn btn-danger btn-block" name="action" value="return" style="margin-top:8px">{{ _('Вернуть с комментарием') }}</button>
+          </div>
+        </form>
+      </article>
+    {% else %}
+      <div class="panel empty"><div class="big">🎉</div>{{ _('Очередь пуста. Новые отчёты появятся здесь.') }}</div>
+    {% endfor %}
+    <div class="panel empty" id="allDone" hidden><div class="big">🎉</div>{{ _('Готово, всё проверено.') }}</div>
+
+    {% if returned %}
+      <details class="more" style="margin-top:12px">
+        <summary>{{ _('Возвращены на исправление') }} ({{ returned|length }})</summary>
+        {% for c in returned %}
+          <div class="list-row"><span>{{ _(c.r['org']) }}, {{ c.r['date'][8:10] }}.{{ c.r['date'][5:7] }}</span>
+            <span class="pill st-returned">{{ _('Ждём исправления') }}</span></div>
+        {% endfor %}
+      </details>
+    {% endif %}
+  </div>
+
+  <aside class="panel">
+    <div class="panel-title"><h2>{{ _('Не сдали отчёт') }}</h2><small>{{ _('за 7 дней') }}</small></div>
+    {% for m in missing %}
+      <div class="list-row"><span>{{ _(m.org) }}</span><small class="num">{{ m.date[8:10] }}.{{ m.date[5:7] }}</small></div>
+    {% else %}
+      <p class="muted">{{ _('Все точки отчитались вовремя.') }}</p>
+    {% endfor %}
+  </aside>
+</div>
+
+<div class="grid-2 tab-pane" id="pane-auto" {{ "hidden" if tab != "auto" }}>
+  <div>
+    {% for c in auto %}
+      {% set r = c.r %}
+      <article class="inbox-card">
+        <div class="inbox-head">
+          <div><h2>{{ _(r['org']) }}</h2>
+            <small class="num">{{ r['date'][8:10] }}.{{ r['date'][5:7] }}, {{ _('всего {kg} кг', kg=fmt_num(r['total'])) }}{% if r['note'] %}, «{{ _(r['note']) }}»{% endif %}</small></div>
+          <span class="pill st-accepted">{{ _('Принято системой') }}</span>
+        </div>
+        <div class="inbox-items">
+          {% for i in c['items'] %}
+            <span class="chip">{{ icon(i.name) }} {{ _(i.name) }}: <b class="num">{{ fmt_num(i.qty) }} {{ _(i.unit) }}</b>{% if i.norm %} <span class="muted">({% if i.by_wd %}{{ _('обычно {wd} {n}', wd=_(WD[c.wd]), n=fmt_num(i.norm)) }}{% else %}{{ _('обычно {n}', n=fmt_num(i.norm)) }}{% endif %})</span>{% endif %}{% if i.surplus %}, 🥐 {{ fmt_num(i.surplus) }}{% endif %}</span>
+          {% else %}<span class="chip">{{ _('Отходов не было') }}</span>{% endfor %}
+        </div>
+        <form method="post" action="{{ url_for('review', rid=r['id']) }}" class="js-review">
+          <div class="inbox-actions">
+            <button class="btn btn-danger" type="button" data-open-return>{{ _('Вернуть на исправление') }}</button>
+            <a class="btn btn-ghost" href="{{ url_for('review', rid=r['id']) }}">{{ _('Подробнее') }}</a>
+          </div>
+          <div class="return-box">
+            <textarea class="input" name="comment" placeholder="{{ _('Что не так? Например: очистки не указаны, хотя кухня работала') }}"></textarea>
+            <button class="btn btn-danger btn-block" name="action" value="return" style="margin-top:8px">{{ _('Вернуть с комментарием') }}</button>
+          </div>
+        </form>
+      </article>
+    {% else %}
+      <div class="panel empty"><div class="big">🤖</div>{{ _('За неделю система ничего не принимала сама.') }}</div>
+    {% endfor %}
+  </div>
+  <aside class="panel">
+    <h2 style="margin-bottom:10px">{{ _('Когда система принимает сама') }}</h2>
+    <p class="muted" style="margin-bottom:10px">{{ _('Только если выполнено всё сразу:') }}</p>
+    <div class="list-row"><span>{{ _('Вес не больше обычного в {k} раза', k=fmt_num(rules.high)) }}</span></div>
+    <div class="list-row"><span>{{ _('Вес не меньше {p}% от обычного', p=(rules.low * 100)|int) }}</span></div>
+    <div class="list-row"><span>{{ _('Не пропущены виды отходов, которые у точки бывают почти всегда') }}</span></div>
+    <div class="list-row"><span>{{ _('По каждому виду есть хотя бы 5 прошлых записей') }}</span></div>
+    <div class="list-row"><span>{{ _('Нет комментария и это не исправление после возврата') }}</span></div>
+    <p class="muted" style="margin-top:12px; font-size:.92rem">{{ _('«Обычно» — средний вес у этой точки за 45 дней по принятым отчётам, без последней недели. Если по этому дню недели хватает данных, сравниваем с ним: по субботам у бариста больше молока, и это не ошибка.') }} {{ _('Ещё {p}% нормальных отчётов случайно уходят на проверку человеку.', p=rules.spot) }}</p>
+  </aside>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const T = {{ js_t|tojson }};
+const tr = (s, o) => (T[s] || s).replace(/\{(\w+)\}/g, (m, k) => (o && k in o ? o[k] : m));
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.tab-pane').forEach(p => p.hidden = p.id !== 'pane-' + b.dataset.t);
+  history.replaceState(null, '', '?tab=' + b.dataset.t);
+});
+document.querySelectorAll('[data-open-return]').forEach(b => b.onclick = () => {
+  const box = b.closest('form').querySelector('.return-box'); box.classList.toggle('open');
+  box.querySelector('textarea').focus();
+});
+// Принять/вернуть без перезагрузки: карточка уезжает, счётчик уменьшается
+document.querySelectorAll('.js-review').forEach(f => f.addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = e.submitter, data = new FormData(f);
+  data.set('action', btn.value);
+  if (btn.value === 'return' && !data.get('comment').trim()) { f.querySelector('textarea').focus(); return; }
+  btn.disabled = true;
+  const res = await fetch(f.getAttribute('action'), {method: 'POST', body: data, headers: {'X-Fetch': '1'}});
+  if (!res.ok) { location.reload(); return; }
+  const card = f.closest('.inbox-card'), inAuto = !!card.closest('#pane-auto'); card.classList.add('gone');
+  setTimeout(() => {
+    card.remove();
+    if (inAuto) return;
+    const left = document.querySelectorAll('#pane-inbox .inbox-card').length;
+    document.getElementById('inboxSub').textContent = (left ? tr('Ждут проверки: {n}.', {n: left}) : tr('Все отчёты проверены.'))
+      + ' ' + tr('Обычные отчёты система принимает сама.');
+    document.querySelectorAll('.nav-badge').forEach(b => left ? b.textContent = left : b.remove());
+    if (!left) document.getElementById('allDone').hidden = false;
+  }, 650);
+}));
+</script>
+{% endblock %}

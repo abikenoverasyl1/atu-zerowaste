@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Реестр') }}{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div><h1>{{ _('Реестр') }}</h1><p class="muted">{{ _('Все принятые записи. Отфильтруйте и выгрузите в Excel.') }}</p></div>
+</header>
+<form class="filters" method="get">
+  <input class="input" type="date" name="from" value="{{ f.frm }}" aria-label="{{ _('С даты') }}">
+  <input class="input" type="date" name="to" value="{{ f.to }}" aria-label="{{ _('По дату') }}">
+  <select class="input" name="org" aria-label="{{ _('Организация') }}"><option value="">{{ _('Все точки') }}</option>
+    {% for o in orgs %}<option value="{{ o['id'] }}" {{ 'selected' if f.org|string == o['id']|string }}>{{ _(o['name']) }}</option>{% endfor %}</select>
+  <select class="input" name="wt" aria-label="{{ _('Вид отхода') }}"><option value="">{{ _('Все виды отходов') }}</option>
+    {% for w in wts %}<option value="{{ w['id'] }}" {{ 'selected' if f.wt|string == w['id']|string }}>{{ _(w['name']) }}</option>{% endfor %}</select>
+  <button class="btn btn-primary btn-sm">{{ _('Показать') }}</button>
+  <button class="btn btn-sm" name="export" value="xlsx">{{ _('Скачать Excel') }}</button>
+</form>
+<p style="margin-bottom:14px">{{ _('{n} записей: {w} отходов, {m} потерь, {c} CO₂.', n=n, w=fmt_mass(t.waste), m=fmt_money(t.money), c=fmt_mass(t.co2)) }}{% if t.surplus %} {{ _('Отдали студентам: {s}.', s=fmt_mass(t.surplus)) }}{% endif %}</p>
+<section class="panel" style="padding:8px 10px">
+  <div class="table-wrap"><table class="t">
+    <thead><tr><th>{{ _('Дата') }}</th><th>{{ _('Точка') }}</th><th>{{ _('Вид отхода') }}</th><th class="r">{{ _('Вес') }}</th><th class="r">{{ _('Потери') }}</th><th class="r">CO₂, кг</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr><td class="num">{{ r.date[8:10] }}.{{ r.date[5:7] }}</td><td>{{ _(r.org) }}</td><td>{{ icon(r.wt) }} {{ _(r.wt) }}</td>
+        <td class="r">{{ fmt_num(r.qty) }} {{ _(r.unit) }}{% if r.surplus_qty %}<br><small style="color:var(--yolk-deep)">🥐 {{ _('отдали {n}', n=fmt_num(r.surplus_qty)) }}</small>{% endif %}</td>
+        <td class="r">{{ fmt_money(r.money) }}</td><td class="r">{{ fmt_num(r.co2) }}</td></tr>
+    {% else %}
+      <tr><td colspan="6"><div class="empty">{{ _('За этот период принятых записей нет. Попробуйте расширить даты.') }}</div></td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% if n > 500 %}<p class="muted" style="margin-top:10px">{{ _('Показаны первые 500 записей. Полный список — в Excel.') }}</p>{% endif %}
+{% endblock %}

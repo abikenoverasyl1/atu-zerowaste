@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+{% block title %}{{ _(org['name']) }}{% endblock %}
+{% block body_class %}has-tabbar{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+{% set last = history[0] if history else None %}
+
+{% if done %}
+  <section class="done">
+    <svg class="check" viewBox="0 0 96 96" aria-hidden="true"><circle cx="48" cy="48" r="48"/><path d="M28 50 l14 13 l26 -30"/></svg>
+    {% if nowaste %}
+      <h1>{{ _('Записали: отходов не было') }}</h1>
+      <p class="muted" style="margin-top:8px">{{ _('День {d} закрыт, напоминаний не будет.', d=day.strftime('%d.%m')) }}</p>
+    {% elif auto %}
+      <h1>{{ _('Принято') }}</h1>
+      <p class="muted" style="margin-top:8px">{{ _('{kg} кг за {d}. Всё в пределах обычного, поэтому система приняла отчёт сама.', kg=fmt_num(day_total), d=day.strftime('%d.%m')) }}</p>
+    {% else %}
+      <h1>{{ _('Отправлено на проверку') }}</h1>
+      <p class="muted" style="margin-top:8px">{{ _('{kg} кг за {d}. Проверяющий посмотрит вручную.', kg=fmt_num(day_total), d=day.strftime('%d.%m')) }}{% if why %} {{ _('Причина: {why}.', why=why) }}{% endif %}</p>
+    {% endif %}
+    {% if gift %}
+      <div class="gift-note">🥐 {% if tg %}{{ _('Студенты увидят объявление: {gift}. Его опубликовали на странице «Излишки» и в Telegram-канале.', gift=gift) }}{% else %}{{ _('Студенты увидят объявление: {gift}. Оно появилось на странице «Излишки».', gift=gift) }}{% endif %}</div>
+    {% endif %}
+    <div style="margin-top:28px; display:grid; gap:10px">
+      <a class="btn btn-primary btn-lg" href="{{ url_for('history') if g.user['role'] == 'responsible' else url_for('index') }}">{{ _('Готово') }}</a>
+      <a class="btn btn-ghost" href="{{ url_for('form', org_id=org['id'], d=day.isoformat()) }}">{{ _('Посмотреть отчёт') }}</a>
+    </div>
+  </section>
+{% else %}
+
+<header>
+  <h1>{{ _(org['name']) }}</h1>
+  <div class="day-switch">
+    <a class="btn btn-sm" href="{{ url_for('form', org_id=org['id'], d=prev_day) }}" aria-label="{{ _('Предыдущий день') }}">‹</a>
+    <span class="num" style="font-weight:600">{% if day == today %}{{ _('Сегодня') }}, {% endif %}{{ day.strftime('%d.%m.%Y') }}</span>
+    {% if day < today %}<a class="btn btn-sm" href="{{ url_for('form', org_id=org['id'], d=next_day) }}" aria-label="{{ _('Следующий день') }}">›</a>{% endif %}
+    {% if report %}<span class="pill st-{{ report['status'] }}" style="margin-left:auto">{{ _(STATUSES[report['status']]) }}</span>{% endif %}
+  </div>
+</header>
+
+{% if report and report['status'] == 'returned' and last and last['comment'] %}
+  <div class="alert alert-danger" style="margin-top:18px">{{ _('Проверяющий вернул отчёт: «{c}». Исправьте и отправьте снова.', c=last['comment']) }}</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" id="wf">
+  <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-top:18px">
+    <p class="muted">{% if editable %}{{ _('Взвесили — нажмите на плитку. Каждое взвешивание прибавляется к итогу дня.') }}{% else %}{{ _('Отчёт отправлен, менять его уже нельзя.') }}{% endif %}</p>
+  </div>
+  {% if editable and ai_photo_on %}
+  <div class="tools" style="margin-top:14px">
+    <button type="button" class="btn" id="photoBtn">📷 {{ _('Фото — ИИ подскажет вид') }}</button>
+    <input type="file" accept="image/*" capture="environment" id="aiPhoto" hidden>
+  </div>
+  <div class="ai-box" id="aiBox" hidden></div>
+  {% endif %}
+  <div class="tiles" style="margin-top:10px">
+    {% for w in template %}
+      {% set it = items.get(w['id']) %}
+      <button type="button" class="tile {{ 'filled' if it and it['qty'] }}" data-id="{{ w['id'] }}" data-name="{{ _(w['name']) }}"
+              data-unit="{{ _(w['unit']) }}" data-edible="{{ w['edible'] }}" {{ 'disabled' if not editable }}>
+        {% if it and it['surplus_qty'] %}<span class="t-gift">🥐 {{ fmt_num(it['surplus_qty']) }}</span>{% endif %}
+        <span class="t-ico" aria-hidden="true">{{ icon(w['name']) }}</span>
+        <span class="t-name">{{ _(w['name']) }}</span>
+        <span class="t-val num">{{ fmt_num(it['qty']) if it and it['qty'] else '0' }} <small>{{ _(w['unit']) }}</small></span>
+      </button>
+      <input type="hidden" name="qty_{{ w['id'] }}" value="{{ it['qty'] if it else '' }}">
+      <input type="hidden" name="surplus_{{ w['id'] }}" value="{{ it['surplus_qty'] if it and it['surplus_qty'] else '' }}">
+    {% endfor %}
+    {% if editable %}
+      <button type="button" class="tile add" onclick="addType.showModal()"><span style="font-size:26px">＋</span><span class="t-name">{{ _('Другой вид отхода') }}</span></button>
+    {% endif %}
+  </div>
+  {% if editable %}<div class="saved-hint" id="savedHint">{% if report and report['status'] == 'draft' %}{{ _('Черновик сохранён') }}{% endif %}</div>{% endif %}
+
+  {% if editable %}
+  <details class="more">
+    <summary>{{ _('Комментарий и фото') }}</summary>
+    <div class="panel" style="margin-top:8px">
+      <label class="field"><span>{{ _('Комментарий (отчёт посмотрит проверяющий)') }}</span><input class="input" name="note" value="{{ (report['note'] or '') if report else '' }}" placeholder="{{ _('Например: сломался холодильник') }}"></label>
+      <label class="field"><span>{{ _('Фото контейнера') }}</span><input class="input" type="file" name="photo" accept="image/*" capture="environment"></label>
+      <label class="field" style="margin:0"><span>{{ _('Излишки можно забрать до') }}</span><input class="input" type="time" name="until" value="16:00"></label>
+    </div>
+  </details>
+  <button class="btn btn-ghost btn-block" name="action" value="nowaste" style="margin-top:8px"
+          onclick="return confirm({{ _('Записать, что сегодня отходов не было?')|tojson|forceescape }})">{{ _('Сегодня отходов не было') }}</button>
+  {% endif %}
+  {% if photo %}<p style="margin-top:12px"><a href="{{ url_for('uploaded', name=photo) }}" target="_blank">📷 {{ _('Фото к отчёту') }}</a></p>{% endif %}
+
+  {% if history %}
+  <details class="more">
+    <summary>{{ _('История отчёта') }}</summary>
+    <div class="panel" style="margin-top:8px">
+      {% for h in history %}
+        <div class="list-row"><div><span class="pill st-{{ h['status'] }}">{{ _(STATUSES[h['status']]) }}</span>
+          <div><small>{{ h['user_name'] or _('Система') }}</small></div>
+          {% if h['comment'] %}<div style="margin-top:4px">«{{ h['comment'] }}»</div>{% endif %}</div>
+          <small class="num">{{ h['ts'][8:10] }}.{{ h['ts'][5:7] }} {{ h['ts'][11:16] }}</small></div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+
+  {% if editable %}
+  <div class="dock">
+    <div class="dock-in">
+      <div class="dock-total"><small>{{ _('Итого за день') }}</small><div class="v num"><span id="dayTotal">0</span> кг</div></div>
+      <button type="button" class="btn btn-lg mic" id="voiceFab" hidden aria-label="{{ _('Сказать голосом') }}" title="{{ _('Сказать голосом') }}">🎤</button>
+      <button class="btn btn-primary btn-lg" name="action" value="submit" id="sendBtn">{{ _('Отправить') }}</button>
+    </div>
+  </div>
+  <div class="voice-hint" id="voiceHint"></div>
+  {% endif %}
+</form>
+
+<!-- «Весы»: ввод веса -->
+<div class="sheet-bg" id="sheetBg"></div>
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sName">
+  <div class="grab"></div>
+  <div style="display:flex; align-items:center; gap:10px">
+    <span id="sIco" style="font-size:28px"></span><h2 id="sName" style="flex:1"></h2>
+    <button type="button" class="btn btn-ghost btn-sm" id="sClose" aria-label="{{ _('Закрыть') }}">✕</button>
+  </div>
+  <div class="seg mode-seg" id="modeSeg">
+    <button type="button" class="on" data-m="add">{{ _('Добавить взвешивание') }}</button><button type="button" data-m="fix">{{ _('Исправить итог') }}</button>
+  </div>
+  <div class="ai-box" id="sheetAi" hidden></div>
+  <div class="scale" id="scale">
+    <div class="s-label" id="sLabel">{{ _('Вес') }}</div>
+    <div class="s-read"><span id="sRead">0</span><small id="sUnit">кг</small></div>
+    <div class="s-hint num" id="sHint"></div>
+  </div>
+  <label class="gift-toggle" id="giftRow"><input type="checkbox" id="giftChk">
+    <span>{{ _('Часть съедобна, отдадим студентам') }} <b id="giftVal"></b></span></label>
+  <div class="keys" id="keys">
+    {% for k in ['1','2','3','4','5','6','7','8','9','.','0','⌫'] %}<button type="button" data-k="{{ k }}">{{ ',' if k == '.' else k }}</button>{% endfor %}
+  </div>
+  <div style="display:flex; gap:8px; margin-top:12px">
+    <button type="button" class="btn btn-lg mic" id="sMic" hidden aria-label="{{ _('Сказать вес голосом') }}">🎤</button>
+    <button type="button" class="btn btn-primary btn-lg" id="sOk" style="flex:1">{{ _('Готово') }}</button>
+  </div>
+</section>
+
+<dialog id="addType" style="border:0; border-radius:22px; padding:22px; width:min(420px, 92vw)">
+  <form method="post" action="{{ url_for('add_waste_type', org_id=org['id']) }}">
+    <h2 style="margin-bottom:14px">{{ _('Новый вид отхода') }}</h2>
+    <label class="field"><span>{{ _('Название') }}</span><input class="input" name="name" required placeholder="{{ _('Например: мука') }}"></label>
+    <label class="field"><span>{{ _('Единица') }}</span><select class="input" name="unit"><option>кг</option><option>л</option></select></label>
+    <div style="display:flex; gap:10px"><button type="button" class="btn" onclick="addType.close()">{{ _('Отмена') }}</button>
+      <button class="btn btn-primary" style="flex:1">{{ _('Добавить в форму') }}</button></div>
+  </form>
+</dialog>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if not done and editable %}
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const T = {{ js_t|tojson }};          // переводы для текста, который пишет скрипт
+  const tr = (s, o) => (T[s] || s).replace(/\{(\w+)\}/g, (m, k) => (o && k in o ? o[k] : m));
+  const form = $('wf'), sheet = $('sheet'), bg = $('sheetBg');
+  const num = v => parseFloat(v) || 0;
+  const show = v => (Math.round(v * 10) / 10).toString().replace('.', ',');
+  const field = (id, kind) => form.querySelector(`[name=${kind}_${id}]`);
+  // fresh: первое нажатие заменяет число на экране весов
+  let cur = null, mode = 'qty', how = 'add', buf = {qty: '', surplus: ''}, base = {qty: 0, surplus: 0}, fresh = true;
+
+  function total() {
+    let s = 0; form.querySelectorAll('[name^=qty_]').forEach(i => s += num(i.value));
+    $('dayTotal').textContent = show(s);
+  }
+  const result = k => how === 'add' ? base[k] + num(buf[k]) : num(buf[k]);
+  function render() {
+    $('sRead').textContent = (how === 'add' && buf[mode] ? '+' : '') + (buf[mode] === '' ? '0' : buf[mode].replace('.', ','));
+    $('scale').classList.toggle('gift', mode === 'surplus');
+    $('sLabel').textContent = mode === 'surplus' ? (how === 'add' ? tr('Ещё отдаём студентам') : tr('Всего отдаём студентам'))
+                                                 : (how === 'add' ? tr('Новое взвешивание') : tr('Итог за день'));
+    const u = cur.dataset.unit, k = mode;
+    $('sHint').textContent = how === 'add' && base[k] ? tr('было {a} {u} → станет {b} {u}', {a: show(base[k]), b: show(result(k)), u}) : '';
+    $('giftVal').textContent = (how === 'add' ? base.surplus + num(buf.surplus) : num(buf.surplus)) ? `— ${show(result('surplus'))} ${u}` : '';
+    document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.m === how));
+  }
+  function open(tile, preset, aiNote) {
+    cur = tile; mode = 'qty'; fresh = true;
+    base = {qty: num(field(tile.dataset.id, 'qty').value), surplus: num(field(tile.dataset.id, 'surplus').value)};
+    how = 'add'; buf = {qty: preset ? String(preset) : '', surplus: ''};
+    $('modeSeg').style.display = base.qty ? '' : 'none';
+    $('sName').textContent = tile.dataset.name;
+    $('sIco').textContent = tile.querySelector('.t-ico').textContent;
+    $('sUnit').textContent = tile.dataset.unit;
+    $('giftRow').style.display = tile.dataset.edible === '1' ? '' : 'none';
+    $('giftChk').checked = false;
+    $('sheetAi').hidden = !aiNote; if (aiNote) { $('sheetAi').className = 'ai-box' + (aiNote.warn ? ' warn' : ''); $('sheetAi').textContent = aiNote.text; }
+    render(); sheet.classList.add('open'); bg.classList.add('open');
+  }
+  function close() { sheet.classList.remove('open'); bg.classList.remove('open'); }
+
+  async function autosave() {
+    const data = new FormData(form); data.set('action', 'draft');
+    try {
+      const r = await fetch(location.pathname, {method: 'POST', body: data, headers: {'X-Fetch': '1'}});
+      const j = await r.json();
+      $('savedHint').textContent = j.ok ? tr('Сохранено в {t}. Можно закрыть и вернуться позже.', {t: j.saved}) : j.error;
+    } catch (e) { $('savedHint').textContent = tr('Нет связи — данные сохранятся при отправке.'); }
+  }
+  function save() {
+    let q = result('qty'), s = result('surplus');
+    q = Math.round(q * 10) / 10; s = Math.min(Math.round(s * 10) / 10, q);
+    const id = cur.dataset.id;
+    field(id, 'qty').value = q || ''; field(id, 'surplus').value = s || '';
+    cur.classList.toggle('filled', q > 0);
+    cur.querySelector('.t-val').innerHTML = `${show(q)} <small>${cur.dataset.unit}</small>`;
+    let g = cur.querySelector('.t-gift');
+    if (s > 0) { if (!g) { g = document.createElement('span'); g.className = 't-gift'; cur.prepend(g); } g.textContent = '🥐 ' + show(s); }
+    else if (g) g.remove();
+    cur.classList.remove('pop'); void cur.offsetWidth; cur.classList.add('pop');
+    total(); close(); autosave();
+  }
+  function press(k) {
+    let b = fresh && k !== '⌫' ? '' : buf[mode];
+    fresh = false;
+    if (k === '⌫') b = b.slice(0, -1);
+    else if (k === '.') { if (!b.includes('.')) b = (b || '0') + '.'; }
+    else if (b.includes('.')) { if (b.split('.')[1].length >= 1) return; b += k; }   // один знак после запятой
+    else { if (b.length >= 3) return; b = (b === '0' ? '' : b) + k; }                // до 999
+    buf[mode] = b; render();
+  }
+  form.querySelectorAll('.tile[data-id]').forEach(t => t.addEventListener('click', () => open(t)));
+  $('keys').addEventListener('click', e => e.target.dataset.k && press(e.target.dataset.k));
+  $('modeSeg').addEventListener('click', e => { if (e.target.dataset.m) { how = e.target.dataset.m;
+    if (how === 'fix' && !buf.qty) buf = {qty: String(base.qty), surplus: base.surplus ? String(base.surplus) : ''};
+    if (how === 'add') buf = {qty: '', surplus: ''};
+    fresh = true; render(); } });
+  $('giftChk').addEventListener('change', e => { mode = e.target.checked ? 'surplus' : 'qty'; fresh = true; render(); });
+  document.addEventListener('keydown', e => {
+    if (!sheet.classList.contains('open')) return;
+    if (/^[0-9]$/.test(e.key)) press(e.key);
+    if (e.key === ',' || e.key === '.') press('.');
+    if (e.key === 'Backspace') press('⌫');
+    if (e.key === 'Enter') { e.preventDefault(); save(); }
+    if (e.key === 'Escape') close();
+  });
+  $('sOk').onclick = save; $('sClose').onclick = close; bg.onclick = close;
+  total();
+
+  // ---------- Голос: «очистки три с половиной» ----------
+  const WORDS = {ноль: 0, один: 1, одна: 1, одну: 1, два: 2, две: 2, три: 3, четыре: 4, пять: 5, шесть: 6, семь: 7, восемь: 8,
+    девять: 9, десять: 10, одиннадцать: 11, двенадцать: 12, тринадцать: 13, четырнадцать: 14, пятнадцать: 15, шестнадцать: 16,
+    семнадцать: 17, восемнадцать: 18, девятнадцать: 19, двадцать: 20, тридцать: 30, сорок: 40, пятьдесят: 50, сто: 100,
+    // қазақша
+    нөл: 0, бір: 1, екі: 2, үш: 3, төрт: 4, бес: 5, алты: 6, жеті: 7, сегіз: 8, тоғыз: 9, он: 10, жиырма: 20,
+    отыз: 30, қырық: 40, елу: 50, жүз: 100};
+  function parseNumber(t) {
+    t = t.toLowerCase().replace(/ё/g, 'е');
+    let n = null;
+    const m = t.match(/(\d+(?:[.,]\d+)?)/);
+    if (m) n = parseFloat(m[1].replace(',', '.'));
+    else if (/полтора|полторы|бір жарым/.test(t)) n = 1.5;
+    else { let s = 0, any = false; t.split(/\s+/).forEach(w => { if (w in WORDS) { s += WORDS[w]; any = true; } }); if (any) n = s; }
+    if (n === null && /половин|жарты/.test(t)) n = 0.5;
+    else if (n !== null && /с половин|жарым/.test(t)) n += 0.5;
+    if (n !== null && /грамм/.test(t) && !/кило/.test(t)) n = n / 1000;
+    return n === null ? null : Math.round(n * 10) / 10;
+  }
+  function matchTile(t) {
+    t = t.toLowerCase().replace(/ё/g, 'е');
+    let best = null, score = 0;
+    form.querySelectorAll('.tile[data-id]').forEach(tile => {
+      const sc = tile.dataset.name.toLowerCase().replace(/ё/g, 'е').split(/[^\p{L}]+/u)
+        .filter(w => w.length >= 4).reduce((a, w) => a + (t.includes(w.slice(0, Math.max(4, w.length - 2))) ? 1 : 0), 0);
+      if (sc > score) { score = sc; best = tile; }
+    });
+    return best;
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  function listen(btn, onText) {
+    const r = new SR(); r.lang = document.documentElement.lang === 'kk' ? 'kk-KZ' : 'ru-RU'; r.interimResults = false; r.maxAlternatives = 3;
+    btn.classList.add('listening');
+    r.onresult = e => onText([...e.results[0]].map(a => a.transcript));
+    r.onerror = () => hint(tr('Не расслышал. Нажмите 🎤 и скажите ещё раз.'));
+    r.onend = () => btn.classList.remove('listening');
+    r.start();
+  }
+  function hint(text) { const h = $('voiceHint'); h.textContent = text; h.classList.add('show');
+    clearTimeout(hint.t); hint.t = setTimeout(() => h.classList.remove('show'), 3500); }
+  if (SR) {
+    $('voiceFab').hidden = false; $('sMic').hidden = false;
+    $('voiceFab').onclick = () => { hint(tr('Скажите, например: «очистки три с половиной»'));
+      listen($('voiceFab'), alts => {
+        for (const t of alts) { const tile = matchTile(t), n = parseNumber(t);
+          if (tile && n) { open(tile, n); return; } }
+        const tile = matchTile(alts[0]);
+        if (tile) open(tile); else hint(tr('Услышал «{t}», но не понял вид отхода. Нажмите на плитку.', {t: alts[0]}));
+      }); };
+    $('sMic').onclick = () => listen($('sMic'), alts => {
+      const n = alts.map(parseNumber).find(x => x !== null);
+      if (n !== undefined) { buf[mode] = String(n); fresh = true; render(); } else hint(tr('Не понял число в «{t}»', {t: alts[0]}));
+    });
+  }
+
+  // ---------- Фото: ИИ подсказывает вид отхода ----------
+  if ($('photoBtn')) $('photoBtn').onclick = () => $('aiPhoto').click();
+  if ($('aiPhoto')) $('aiPhoto').onchange = async e => {
+    const file = e.target.files[0]; if (!file) return;
+    const box = $('aiBox'); box.hidden = false; box.className = 'ai-box'; box.innerHTML = '<span class="typing">' + tr('ИИ смотрит на фото') + '</span>';
+    const data = new FormData(); data.append('photo', await shrink(file), 'photo.jpg');
+    try {
+      const r = await fetch('{{ url_for("ai_photo", org_id=org["id"]) }}', {method: 'POST', body: data});
+      const j = await r.json();
+      if (!j.ok) { box.textContent = j.error; return; }
+      const tile = form.querySelector(`.tile[data-id="${j.id}"]`);
+      const warn = !!j.contamination;  // tile найден выше
+      box.className = 'ai-box' + (warn ? ' warn' : '');
+      box.textContent = tr('ИИ: похоже на «{n}» (уверенность: {c}).', {n: tile ? tile.dataset.name : j.name, c: j.confidence}) + ' ' + (j.note || '') +
+        (warn ? ' ' + tr('Внимание: {x} — уберите перед отправкой на корм или компост.', {x: j.contamination}) : '');
+      if (tile) open(tile, null, {text: box.textContent, warn});
+    } catch (err) { box.textContent = tr('Не удалось отправить фото. Выберите вид отхода вручную.'); }
+    e.target.value = '';
+  };
+  // Уменьшаем фото до ~1200 px перед отправкой: быстрее и дешевле
+  function shrink(file) {
+    return new Promise(res => {
+      const img = new Image(); img.onload = () => {
+        const k = Math.min(1, 1200 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = img.width * k; c.height = img.height * k;
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); c.toBlob(b => res(b || file), 'image/jpeg', .85);
+      }; img.onerror = () => res(file); img.src = URL.createObjectURL(file);
+    });
+  }
+})();
+</script>
+{% endif %}
+{% endblock %}

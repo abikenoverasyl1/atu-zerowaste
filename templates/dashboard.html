@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Обзор') }} — ATU Zero Waste{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div class="seg no-print" role="tablist" aria-label="{{ _('Период') }}">
+    {% for n, lbl in [(30, _('30 дней')), (90, _('3 месяца')), (365, _('Год'))] %}
+      <a class="{{ 'on' if days == n }}" href="{{ url_for('dashboard', **{'from': (today - timedelta_days(n)).isoformat(), 'to': today.isoformat()}) }}">{{ lbl }}</a>
+    {% endfor %}
+  </div>
+  <a class="btn btn-sm" href="{{ url_for('report') }}">{{ _('Скачать отчёт') }}</a>
+</header>
+
+<section>
+  {% set mass_html %}<span class="count" data-v="{{ t.waste }}" data-f="mass">{{ fmt_mass(t.waste) }}</span>{% endset %}
+  {% set money_html %}<span class="count" data-v="{{ t.money }}" data-f="money">{{ fmt_big(t.money) }}</span>{% endset %}
+  <p class="lead">{{ _('{span} в отходы ушло {mass} еды. Это {money} потерь.', span=span, mass=mass_html, money=money_html)|safe }}</p>
+  <div class="facts">
+    <div class="fact"><div class="v num">{{ fmt_big(per_month(t.money)) }}</div><div class="l">{{ _('теряем в месяц') }}</div></div>
+    <div class="fact"><div class="v num">{{ fmt_mass(t.co2) }}</div><div class="l">{{ _('CO₂ на полигоне') }}</div></div>
+    <div class="fact"><div class="v num">{{ '%.0f'|format(t.recyclable_share) }}%</div><div class="l">{{ _('можно переработать') }}</div></div>
+    <div class="fact gift"><div class="v num">{{ fmt_mass(t.surplus) }}</div><div class="l">{{ _('еды отдали студентам') }}</div></div>
+  </div>
+</section>
+
+<section class="panel no-print" style="margin-bottom:16px">
+  <div class="panel-title">
+    <h2>{{ _('Помощник') }} {% if ai_on %}<span class="ai-tag">{{ _('ИИ') }}: {{ ai_name }}</span>{% endif %}</h2>
+    <button class="btn btn-sm" id="sumBtn">{{ _('Составить сводку для руководства') }}</button>
+  </div>
+  <form class="ask" id="askForm">
+    <input class="input" id="askQ" placeholder="{{ _('Спросите про данные, например: почему выросли потери в буфете?') if ai_on else _('Вопросы к ИИ заработают после подключения ключа') }}" {{ 'disabled' if not ai_on }}>
+    <button class="btn btn-primary" {{ 'disabled' if not ai_on }}>{{ _('Спросить') }}</button>
+  </form>
+  {% if ai_on %}
+  <div class="ask-chips">
+    <button type="button">{{ _('Где мы теряем больше всего денег?') }}</button>
+    <button type="button">{{ _('Что изменилось за последний месяц?') }}</button>
+    <button type="button">{{ _('Как сократить отходы хлеба?') }}</button>
+    <button type="button">{{ _('Какие точки плохо сдают отчёты?') }}</button>
+  </div>
+  {% endif %}
+  <div class="ai-answer" id="aiAnswer"></div>
+</section>
+
+<div class="grid-2">
+  <section class="panel">
+    <div class="panel-title">
+      <h2 id="chartTitle">{{ _('Как менялось по неделям') }}</h2>
+      <div class="seg" id="chartSeg">
+        <button class="on" data-c="weekly">{{ _('Динамика') }}</button><button data-c="org">{{ _('По точкам') }}</button><button data-c="types">{{ _('Состав') }}</button>
+      </div>
+    </div>
+    <div class="chart-box"><canvas id="chart" aria-label="{{ _('График отходов') }}"></canvas></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-title"><h2>{{ _('Что сделать') }}</h2><small>{{ _('экономия в месяц') }}</small></div>
+    <div class="todo">
+      {% for r in recs[:4] %}
+        <div class="todo-item"><div class="t">{{ r.title }}</div><div class="save num">≈ {{ fmt_big(r.impact) }}</div><div class="d">{{ r.text }}</div></div>
+      {% else %}<p class="muted">{{ _('Пока мало данных для советов.') }}</p>{% endfor %}
+    </div>
+    {% if recs|length > 4 %}
+      <details class="more"><summary>{{ _('Ещё {n}', n=recs|length - 4) }}</summary>
+        {% for r in recs[4:] %}<div class="todo-item"><div class="t">{{ r.title }}</div><div class="save num">≈ {{ fmt_big(r.impact) }}</div><div class="d">{{ r.text }}</div></div>{% endfor %}
+      </details>
+    {% endif %}
+  </section>
+</div>
+
+<div class="grid-2" style="margin-top:16px">
+  <section class="panel">
+    <div class="panel-title"><h2>{{ _('Не сдали отчёт') }}</h2><small>{{ _('за 7 дней') }}</small></div>
+    {% for m in missing %}<div class="list-row"><span>{{ _(m.org) }}</span><small class="num">{{ m.date[8:10] }}.{{ m.date[5:7] }}</small></div>
+    {% else %}<p class="muted">{{ _('Все точки отчитались.') }}</p>{% endfor %}
+  </section>
+  <section class="panel">
+    <div class="panel-title"><h2>🥐 {{ _('Отдали студентам') }}</h2><a href="{{ url_for('surplus') }}" style="font-size:.92rem">{{ _('Все объявления') }}</a></div>
+    {% for s in surplus[:3] %}<div class="list-row"><span style="font-size:.95rem">{{ s['text']|replace('🥐 ', '')|replace('\n', ' ') }}</span><small class="num">{{ s['ts'][8:10] }}.{{ s['ts'][5:7] }}</small></div>{% endfor %}
+  </section>
+</div>
+
+<details class="more" style="margin-top:18px"><summary>{{ _('Как считаются цифры') }}</summary>
+  <ul class="muted" style="margin:6px 0 0; padding-left:20px">{% for a in assumptions %}<li>{{ _(a) }}</li>{% endfor %}</ul>
+  <p class="muted" style="margin-top:6px">{{ _('Учитываются только принятые отчёты: проверяющим или системой.') }}</p>
+</details>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+const D = {{ charts|safe }};
+const T = {{ js_t|tojson }};
+const tr = (s, o) => (T[s] || s).replace(/\{(\w+)\}/g, (m, k) => (o && k in o ? o[k] : m));
+const TITLES = {weekly: tr('Как менялось по неделям'), org: tr('Где теряем больше всего, ₸'), types: tr('Из чего состоят отходы')};
+const rub = v => Math.round(v).toLocaleString('ru-RU');
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let chart, current = 'weekly';
+function draw(kind) {
+  current = kind;
+  if (!window.Chart) return;
+  if (chart) chart.destroy();
+  // цвета берём из темы, чтобы графики читались и на светлом, и на тёмном фоне
+  const PAL = [css('--basil'), css('--yolk'), css('--sky'), css('--tomato'), '#8FCFA8', '#D9C9A3', css('--ink-2'), css('--ink-3')];
+  Chart.defaults.font.family = 'Onest, system-ui, sans-serif';
+  Chart.defaults.color = css('--ink-2');
+  const grid = {color: css('--line')}, legend = {position: 'bottom', labels: {boxWidth: 10, boxHeight: 10, usePointStyle: true}};
+  const cfg = {
+    weekly: {type: 'line', data: {labels: D.weekly.labels, datasets: D.weekly.datasets.map((d, i) => ({...d,
+      borderColor: PAL[i], backgroundColor: PAL[i], tension: .35, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5}))},
+      options: {plugins: {legend}, scales: {y: {beginAtZero: true, grid}, x: {grid: {display: false}}}, interaction: {mode: 'index', intersect: false}}},
+    org: {type: 'bar', data: {labels: D.org.labels, datasets: [{data: D.org.data, backgroundColor: css('--basil'), borderRadius: 8, barThickness: 18}]},
+      options: {indexAxis: 'y', plugins: {legend: {display: false}, tooltip: {callbacks: {label: c => rub(c.raw) + ' ₸'}}},
+        scales: {x: {grid, ticks: {callback: v => (v / 1000) + ' ' + tr('тыс.')}}, y: {grid: {display: false}}}}},
+    types: {type: 'doughnut', data: {labels: D.types.labels, datasets: [{data: D.types.data, backgroundColor: PAL, borderWidth: 3, borderColor: css('--surface')}]},
+      options: {cutout: '62%', plugins: {legend: {...legend, position: 'right'}}}},
+  }[kind];
+  cfg.options.maintainAspectRatio = false;
+  chart = new Chart(document.getElementById('chart'), cfg);
+  document.getElementById('chartTitle').textContent = TITLES[kind];
+}
+document.querySelectorAll('#chartSeg button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#chartSeg button').forEach(x => x.classList.toggle('on', x === b)); draw(b.dataset.c);
+});
+window.addEventListener('themechange', () => draw(current));
+draw('weekly');
+
+// Один момент движения на странице: цифры в главной фразе «набегают»
+if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  const fmt = {mass: v => v >= 1000 ? (v / 1000).toFixed(1).replace('.', ',') + ' т' : Math.round(v) + ' кг',
+               money: v => v >= 1e6 ? (v / 1e6).toFixed(1).replace('.', ',') + ' ' + tr('млн ₸') : v >= 1e4 ? Math.round(v / 1000) + ' ' + tr('тыс. ₸') : rub(v) + ' ₸'};
+  document.querySelectorAll('.count').forEach(el => {
+    const end = +el.dataset.v, f = fmt[el.dataset.f], t0 = performance.now(), dur = 1100;
+    const step = now => { const k = Math.min((now - t0) / dur, 1), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = f(end * e); if (k < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  });
+}
+
+// ---------- Помощник ----------
+const ans = document.getElementById('aiAnswer');
+document.getElementById('sumBtn').onclick = async () => {
+  ans.innerHTML = '<span class="typing muted">' + tr('Собираю сводку') + '</span>';
+  try { const j = await (await fetch('{{ url_for("ai_summary") }}')).json();
+    ans.textContent = j.text + (j.note ? '\n\n' + j.note : ''); }
+  catch (e) { ans.textContent = tr('Не удалось получить сводку. Проверьте интернет.'); }
+};
+async function ask(q) {
+  if (!q.trim()) return;
+  ans.innerHTML = '<span class="typing muted">' + tr('Думаю') + '</span>';
+  try { const r = await fetch('{{ url_for("ai_ask") }}', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({q})});
+    const j = await r.json(); ans.textContent = j.ok ? j.text : j.error; }
+  catch (e) { ans.textContent = tr('Не удалось связаться с ИИ. Проверьте интернет.'); }
+}
+document.getElementById('askForm').onsubmit = e => { e.preventDefault(); ask(document.getElementById('askQ').value); };
+document.querySelectorAll('.ask-chips button').forEach(b => b.onclick = () => { document.getElementById('askQ').value = b.textContent; ask(b.textContent); });
+</script>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Излишки — бесплатно студентам') }}{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div><h1>{{ _('Не выбросить, а отдать') }}</h1>
+    <p class="muted">{{ _('Съедобная продукция лабораторий, ATU Inn и столовых, которую можно забрать бесплатно.') }}</p></div>
+</header>
+<div style="max-width:720px">
+  {% for p in posts %}
+    <article class="panel" style="display:flex; gap:16px; align-items:flex-start">
+      <span style="font-size:30px; line-height:1">🥐</span>
+      <div style="flex:1">
+        <div style="white-space:pre-line">{{ p['text'] }}</div>
+        <small class="num">{{ p['ts'][8:10] }}.{{ p['ts'][5:7] }}, {{ p['ts'][11:16] }}{% if p['sent_to_telegram'] %}, {{ _('отправлено в Telegram') }}{% endif %}</small>
+      </div>
+    </article>
+  {% else %}
+    <div class="panel empty"><div class="big">🥐</div>{{ _('Сейчас раздавать нечего. Объявления появятся, когда лаборатории отметят излишки.') }}</div>
+  {% endfor %}
+  <p class="muted" style="margin-top:16px; font-size:.92rem">{{ _('Раздача проходит после согласования с технологом по требованиям ХАССП.') }}</p>
+</div>
+{% endblock %}

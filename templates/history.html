@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ _('История') }} — {{ _(org['name']) }}{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<header style="margin-bottom:20px">
+  <h1>{{ _('История') }}</h1>
+  <p class="muted" style="margin-top:6px">{{ _(org['name']) }}. {{ _('В этом месяце отправлено {kg} кг.', kg=fmt_num(month)) }}</p>
+</header>
+<div class="panel" style="padding:6px 20px">
+  {% for r in rows %}
+    <a class="list-row" href="{{ url_for('form', org_id=org['id'], d=r['date']) }}" style="color:inherit; text-decoration:none">
+      <div>
+        <div class="num" style="font-weight:600">{{ r['date'][8:10] }}.{{ r['date'][5:7] }}.{{ r['date'][:4] }}</div>
+        {% if r['status'] == 'returned' and r['last_comment'] %}<small style="color:var(--tomato)">«{{ r['last_comment'] }}»</small>{% endif %}
+      </div>
+      <div style="display:flex; align-items:center; gap:14px">
+        <span class="num">{{ fmt_num(r['total']) }} кг</span>
+        <span class="pill st-{{ r['status'] }}">{{ _(STATUSES[r['status']]) }}</span>
+      </div>
+    </a>
+  {% else %}
+    <div class="empty"><div class="big">⚖️</div>{{ _('Отчётов пока нет. Начните с сегодняшнего.') }}</div>
+  {% endfor %}
+</div>
+{% endblock %}

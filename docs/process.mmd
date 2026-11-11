@@ -1,0 +1,32 @@
+flowchart TB
+  subgraph ASIS["Как есть: бумага"]
+    direction LR
+    a1["⚖️ Взвесили отходы<br/><small>или оценили на глаз</small>"] --> a2["📒 Записали в<br/>бумажный журнал"]
+    a2 --> a3["🧮 В конце месяца<br/>пересчитали вручную"]
+    a3 --> a4["🚶 Отнесли листы<br/>проверяющему"]
+    a4 --> a5["💻 Свели все точки<br/>в Excel вручную"]
+    a5 --> a6["❓ Сколько теряем в ₸ и CO₂ —<br/>неизвестно, ESG-отчёта нет"]
+  end
+  subgraph TOBE["Как будет: ATU Zero Waste"]
+    direction LR
+    b1["📱 QR на контейнере<br/><small>вход по PIN точки</small>"] --> b2["⚖️ Вес на телефоне<br/><small>15 сек, голос или фото</small>"]
+    b2 --> b3{"Система сравнивает<br/>с нормой точки"}
+    b3 -->|в норме| b4["✅ Принято<br/>автоматически"]
+    b3 -->|необычно| b5["👀 Проверяющий:<br/>принять / вернуть"]
+    b5 -->|вернул с комментарием| b2
+    b4 --> b6["🗂 Единый реестр"]
+    b5 -->|принял| b6
+    b6 --> b7["📈 Дашборд + советы<br/><small>₸, CO₂, рекомендации</small>"]
+    b7 --> b8["📄 Отчёт за квартал<br/><small>Excel / PDF, 1 клик</small>"]
+    b2 -.->|съедобный излишек| b9["🥐 Telegram:<br/>бесплатно студентам"]
+  end
+  ASIS ~~~ TOBE
+  classDef bad fill:#FDE8E4,stroke:#E2553F,color:#7A2314
+  classDef good fill:#E3F3E8,stroke:#1F8A4C,color:#0F3D22
+  classDef gift fill:#FFF4D9,stroke:#F2B53A,color:#6E4B00
+  classDef plain fill:#FFFFFF,stroke:#C9D4CC
+  class a1,a2,a3,a4,a5 plain
+  class a6 bad
+  class b1,b2,b4,b6,b7,b8 good
+  class b3,b5 plain
+  class b9 gift

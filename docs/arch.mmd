@@ -1,0 +1,33 @@
+flowchart TB
+  subgraph USERS["Кто пользуется — с телефона или ноутбука, через браузер"]
+    direction LR
+    u1["📱 Повар / лаборант<br/><small>QR + PIN, голосовой ввод</small>"]
+    u2["💻 Проверяющий<br/><small>входящие, реестр</small>"]
+    u3["📊 Руководство<br/><small>обзор, отчёты</small>"]
+    u1 ~~~ u2 ~~~ u3
+  end
+  subgraph APP["Веб-приложение ATU Zero Waste · Python + Flask · хостинг Render"]
+    direction LR
+    m1["Формы и роли<br/><small>ввод, автосохранение</small>"]
+    m2["Проверка<br/><small>автоприёмка по норме</small>"]
+    m3["Аналитика<br/><small>₸, CO₂, рекомендации</small>"]
+    m4["Отчёты<br/><small>Excel, PDF</small>"]
+    m1 ~~~ m2 ~~~ m3 ~~~ m4
+  end
+  subgraph BACK["Где хранятся данные и какие сервисы подключены"]
+    direction LR
+    db[("База данных SQLite<br/><small>точки, отчёты, реестр, история</small>")]
+    e1["🤖 Gemini API<br/><small>фото → вид отхода, сводка</small>"]
+    e2["✈️ Telegram Bot API<br/><small>излишки студентам</small>"]
+    db ~~~ e1 ~~~ e2
+  end
+  USERS -->|HTTPS| APP
+  APP --> BACK
+  classDef user fill:#FFFFFF,stroke:#C9D4CC
+  classDef mod fill:#E3F3E8,stroke:#1F8A4C,color:#0F3D22
+  classDef ext fill:#E5EEFC,stroke:#2F6FDB,color:#16336B
+  classDef data fill:#FFF4D9,stroke:#F2B53A,color:#6E4B00
+  class u1,u2,u3 user
+  class m1,m2,m3,m4 mod
+  class e1,e2 ext
+  class db data

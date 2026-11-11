@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{{ _(org['name']) }} — {{ _('вход') }}{% endblock %}
+{% block solo %}
+<form method="post" class="login" id="pinForm" style="text-align:center">
+  <span class="brand-mark" style="width:52px;height:52px;border-radius:16px;font-size:26px;margin:0 auto">♻</span>
+  <h1 style="font-size:1.5rem">{{ _(org['name']) }}</h1>
+  <p class="muted">{{ _('Введите PIN точки. Телефон запомнит вход.') }}</p>
+  <input type="hidden" name="pin" id="pin">
+  <div class="pin-dots" id="dots" aria-live="polite"><i></i><i></i><i></i><i></i></div>
+  {% if error %}<div class="alert alert-danger" style="margin:0 0 14px">{{ error }}</div>{% endif %}
+  <div class="keys" id="keys" style="max-width:320px;margin:0 auto">
+    {% for k in ['1','2','3','4','5','6','7','8','9','','0','⌫'] %}
+      {% if k %}<button type="button" data-k="{{ k }}" aria-label="{{ _('Стереть') if k == '⌫' else k }}">{{ k }}</button>{% else %}<span></span>{% endif %}
+    {% endfor %}
+  </div>
+  <a href="{{ url_for('login', next=request.path) }}" class="btn btn-ghost" style="margin-top:18px">{{ _('Войти по логину и паролю') }}</a>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  let v = '';
+  const dots = [...document.querySelectorAll('#dots i')], form = document.getElementById('pinForm');
+  const show = () => dots.forEach((d, i) => d.classList.toggle('on', i < v.length));
+  document.getElementById('keys').addEventListener('click', e => {
+    const k = e.target.dataset.k; if (!k) return;
+    v = k === '⌫' ? v.slice(0, -1) : (v + k).slice(0, 4); show();
+    if (v.length === 4) { document.getElementById('pin').value = v; setTimeout(() => form.submit(), 150); }
+  });
+  document.addEventListener('keydown', e => {
+    if (/^[0-9]$/.test(e.key)) document.querySelector(`[data-k="${e.key}"]`).click();
+    if (e.key === 'Backspace') document.querySelector('[data-k="⌫"]').click();
+  });
+  {% if error %}document.getElementById('dots').classList.add('shake');{% endif %}
+})();
+</script>
+{% endblock %}

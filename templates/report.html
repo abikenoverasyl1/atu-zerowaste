@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Отчёты') }}{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div><h1>{{ _('Отчёты') }}</h1><p class="muted">{{ _('Сводка по всем точкам за месяц, квартал или год.') }}</p></div>
+</header>
+
+<div class="filters no-print">
+  <div class="seg">
+    {% for k, v in PERIODS.items() %}<a class="{{ 'on' if k == kind }}" href="{{ url_for('report', period=k, ref=ref) }}">{{ _(v) }}</a>{% endfor %}
+  </div>
+  <a class="btn btn-sm" href="{{ url_for('report', period=kind, ref=prev_ref) }}" aria-label="{{ _('Предыдущий период') }}">‹</a>
+  <b>{{ label.split(' (')[0]|capitalize }}</b>
+  {% if next_ref %}<a class="btn btn-sm" href="{{ url_for('report', period=kind, ref=next_ref) }}" aria-label="{{ _('Следующий период') }}">›</a>{% endif %}
+</div>
+
+<div class="grid-2">
+  <section class="panel">
+    <h2>{{ _('Пищевые отходы АО «АТУ»') }}</h2>
+    <p class="muted num" style="margin-bottom:16px">{{ label }}</p>
+    <div class="facts" style="margin:0 0 18px">
+      <div class="fact"><div class="v num">{{ fmt_mass(t.waste) }}</div><div class="l">{{ _('отходов') }}</div></div>
+      <div class="fact"><div class="v num">{{ fmt_big(t.money) }}</div><div class="l">{{ _('потерь') }}</div></div>
+      <div class="fact"><div class="v num">{{ fmt_mass(t.co2) }}</div><div class="l">CO₂</div></div>
+      <div class="fact gift"><div class="v num">{{ fmt_mass(t.surplus) }}</div><div class="l">{{ _('отдали студентам') }}</div></div>
+    </div>
+    <div class="table-wrap"><table class="t">
+      <thead><tr><th>{{ _('Точка') }}</th><th class="r">{{ _('Отходы, кг') }}</th><th class="r">{{ _('Потери') }}</th><th class="r">CO₂, кг</th></tr></thead>
+      <tbody>
+      {% for org, o in by_org %}
+        <tr><td>{{ _(org) }}</td><td class="r">{{ fmt_num(o.waste) }}</td><td class="r">{{ fmt_money(o.money) }}</td><td class="r">{{ fmt_num(o.co2) }}</td></tr>
+      {% else %}<tr><td colspan="4"><div class="empty">{{ _('За этот период принятых отчётов нет.') }}</div></td></tr>{% endfor %}
+      {% if by_org %}<tr class="total"><td>{{ _('Итого') }}</td><td class="r">{{ fmt_num(t.waste) }}</td><td class="r">{{ fmt_money(t.money) }}</td><td class="r">{{ fmt_num(t.co2) }}</td></tr>{% endif %}
+      </tbody>
+    </table></div>
+  </section>
+
+  <aside>
+    <section class="panel no-print">
+      <h2 style="margin-bottom:12px">{{ _('Скачать') }}</h2>
+      <a class="btn btn-primary btn-lg btn-block" href="{{ url_for('report', period=kind, ref=ref, export='xlsx') }}">Excel</a>
+      <a class="btn btn-lg btn-block" style="margin-top:10px" href="{{ url_for('report', period=kind, ref=ref, export='pdf') }}">PDF</a>
+      <p class="muted" style="margin-top:12px; font-size:.92rem">{{ _('В Excel три листа: итоги, разбивка по видам отходов и полный реестр.') }}</p>
+    </section>
+    <section class="panel">
+      <h2 style="margin-bottom:6px">{{ _('Состав отходов') }}</h2>
+      {% set total = t.waste or 1 %}
+      {% for wt, v in by_type.items() %}{% if loop.index <= 8 %}
+        <div class="list-row"><span>{{ icon(wt) }} {{ _(wt) }}</span><span class="num muted">{{ '%.0f'|format(v / total * 100) }}%</span></div>
+      {% endif %}{% endfor %}
+    </section>
+  </aside>
+</div>
+<details class="more" style="margin-top:16px"><summary>{{ _('Как считаются цифры') }}</summary>
+  <ul class="muted" style="margin:6px 0 0; padding-left:20px">{% for a in assumptions %}<li>{{ _(a) }}</li>{% endfor %}</ul>
+</details>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ _(report['org']) }} — {{ _('отчёт') }}{% endblock %}
+{% block content %}
+<a href="{{ url_for('review_list', tab='auto' if auto else None) }}" class="btn btn-ghost btn-sm" style="margin-bottom:12px">‹ {{ _('Входящие') }}</a>
+<header class="page-head">
+  <div><h1>{{ _(report['org']) }}</h1><p class="muted num">{{ _('Отчёт за {d}', d=report['date'][8:10] ~ '.' ~ report['date'][5:7] ~ '.' ~ report['date'][:4]) }}</p></div>
+  <span class="pill st-{{ report['status'] }}">{{ _('Принято системой') if auto else _(STATUSES[report['status']]) }}</span>
+</header>
+<div class="grid-2">
+  <section class="panel">
+    <div class="table-wrap"><table class="t">
+      <thead><tr><th>{{ _('Вид отхода') }}</th><th class="r">{{ _('Вес') }}</th><th class="r">{{ _('Обычно') }}</th></tr></thead>
+      <tbody>
+      {% for i in items %}
+        {% set a = avg.get(i['waste_type_id']) %}
+        {% set high = a and i['qty'] > a * 1.8 %}
+        <tr {% if high %}style="background:var(--yolk-soft)"{% endif %}>
+          <td>{{ icon(i['name']) }} {{ _(i['name']) }}{% if i['surplus_qty'] %}<br><small>🥐 {{ _('отдали студентам {n} {u}', n=fmt_num(i['surplus_qty']), u=_(i['unit'])) }}</small>{% endif %}</td>
+          <td class="r"><b>{{ fmt_num(i['qty']) }}</b> {{ _(i['unit']) }}</td>
+          <td class="r muted">{{ fmt_num(a) if a else '—' }}{% if high %}<br><small style="color:var(--yolk-deep)">{{ _('в {k} раза больше', k=fmt_num(i['qty'] / a)) }}</small>{% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3">{{ _('Отходов не было') }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% if report['note'] %}<p style="margin-top:14px"><b>{{ _('Комментарий точки:') }}</b> {{ _(report['note']) }}</p>{% endif %}
+    {% if photo %}<img src="{{ url_for('uploaded', name=photo) }}" alt="{{ _('Фото контейнера') }}" style="margin-top:14px; max-width:100%; max-height:280px; border-radius:16px">{% endif %}
+  </section>
+  <aside>
+    {% if report['status'] in ('submitted', 'in_review') %}
+    <form method="post" class="panel">
+      <h2 style="margin-bottom:12px">{{ _('Решение') }}</h2>
+      <button class="btn btn-primary btn-lg btn-block" name="action" value="accept">{{ _('Принять в реестр') }}</button>
+      <label class="field" style="margin:16px 0 8px"><span>{{ _('Если нужно исправить') }}</span>
+        <textarea class="input" name="comment" placeholder="{{ _('Что именно исправить') }}"></textarea></label>
+      <button class="btn btn-danger btn-block" name="action" value="return">{{ _('Вернуть с комментарием') }}</button>
+    </form>
+    {% elif auto %}
+    <form method="post" class="panel">
+      <h2 style="margin-bottom:8px">{{ _('Принято системой') }}</h2>
+      <p class="muted" style="margin-bottom:12px">{{ _('Все значения были в пределах обычного. Если что-то не так, верните отчёт повару.') }}</p>
+      <textarea class="input" name="comment" placeholder="{{ _('Что именно исправить') }}" required></textarea>
+      <button class="btn btn-danger btn-block" name="action" value="return" style="margin-top:8px">{{ _('Вернуть на исправление') }}</button>
+    </form>
+    {% endif %}
+    <section class="panel">
+      <h2 style="margin-bottom:6px">{{ _('История') }}</h2>
+      {% for h in history %}
+        <div class="list-row"><div><span class="pill st-{{ h['status'] }}">{{ _(STATUSES[h['status']]) }}</span>
+          <div><small>{{ h['user_name'] or _('Система') }}</small></div>{% if h['comment'] %}<div>«{{ _(h['comment']) }}»</div>{% endif %}</div>
+          <small class="num">{{ h['ts'][8:10] }}.{{ h['ts'][5:7] }} {{ h['ts'][11:16] }}</small></div>
+      {% endfor %}
+    </section>
+  </aside>
+</div>
+{% endblock %}

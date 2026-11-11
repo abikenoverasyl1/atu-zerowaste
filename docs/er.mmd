@@ -1,0 +1,66 @@
+erDiagram
+  organizations ||--o{ users : "сотрудники"
+  organizations ||--o{ org_waste_types : "шаблон формы"
+  waste_types ||--o{ org_waste_types : "входит в"
+  organizations ||--o{ reports : "сдаёт"
+  reports ||--|{ report_items : "состоит из"
+  waste_types ||--o{ report_items : "вид"
+  reports ||--o{ status_history : "история"
+  users ||--o{ status_history : "кто изменил"
+  organizations ||--o{ surplus_posts : "объявления"
+  organizations {
+    int id PK
+    text name "Название точки"
+    text slug "Адрес для QR"
+    text type "Столовая, лаборатория..."
+    text work_days "Дни отчёта"
+    text pin "PIN точки"
+  }
+  users {
+    int id PK
+    text name "ФИО"
+    text login
+    text role "Ответственный, проверяющий..."
+    int org_id FK
+  }
+  waste_types {
+    int id PK
+    text name "Вид отхода"
+    text unit "кг или л"
+    int recyclable "Можно переработать"
+    int edible "Бывает излишком"
+    real price_per_unit "Цена сырья, тенге"
+    real co2_factor "кг CO2e на кг"
+  }
+  org_waste_types {
+    int org_id FK
+    int waste_type_id FK
+  }
+  reports {
+    int id PK
+    int org_id FK
+    text date "День отчёта"
+    text status "Черновик ... Принято"
+    text note "Комментарий"
+  }
+  report_items {
+    int id PK
+    int report_id FK
+    int waste_type_id FK
+    real qty "Масса"
+    real surplus_qty "Отдано студентам"
+    text photo
+  }
+  status_history {
+    int id PK
+    int report_id FK
+    text status
+    int user_id FK "Пусто = система"
+    text comment
+  }
+  surplus_posts {
+    int id PK
+    int org_id FK
+    text text "Объявление"
+    int sent_to_telegram
+  }

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ _('QR-коды') }}{% endblock %}
+{% block content %}
+<header class="page-head no-print">
+  <div><h1>{{ _('QR-коды') }}</h1><p class="muted">{{ _('Распечатайте и повесьте у весов. Сотрудник наводит камеру, один раз вводит PIN точки (он в «Настройках»), и телефон запоминает вход.') }}</p></div>
+  <button class="btn btn-primary" onclick="print()">{{ _('Распечатать') }}</button>
+</header>
+<div class="qr-grid">
+  {% for o in orgs %}
+    <div class="panel qr-card">
+      <div class="qr" data-url="{{ base }}/f/{{ o['slug'] }}"></div>
+      <h2 style="font-size:1rem">{{ _(o['name']) }}</h2>
+      <small>{{ _(o['building']) }}</small>
+      <p style="margin-top:10px; font-weight:500">{{ _('Взвесили — отметьте вес') }}</p>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+document.querySelectorAll('.qr').forEach(el => {
+  if (window.QRCode) new QRCode(el, {text: el.dataset.url, width: 320, height: 320, colorDark: '#18241D', correctLevel: QRCode.CorrectLevel.M});
+  else el.innerHTML = `<small>${el.dataset.url}</small>`;
+});
+</script>
+{% endblock %}
