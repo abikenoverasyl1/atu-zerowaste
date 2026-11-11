@@ -17,8 +17,32 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 import analytics as an
 
 FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "fonts")
-pdfmetrics.registerFont(TTFont("DejaVu", os.path.join(FONT_DIR, "DejaVuSans.ttf")))
-pdfmetrics.registerFont(TTFont("DejaVu-Bold", os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf")))
+# Где искать шрифт с кириллицей для PDF: в проекте, потом в системе. Нет нигде — PDF без кириллицы, но сайт работает.
+_FONT_CANDIDATES = [
+    (os.path.join(FONT_DIR, "DejaVuSans.ttf"), os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf")),
+    ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    ("/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"),
+    ("C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"),
+]
+_fonts = None
+
+
+def pdf_fonts():
+    """Регистрирует шрифты при первом PDF, а не при запуске — отсутствие шрифта не роняет сайт."""
+    global _fonts
+    if _fonts:
+        return _fonts
+    for regular, bold in _FONT_CANDIDATES:
+        if os.path.exists(regular):
+            try:
+                pdfmetrics.registerFont(TTFont("DejaVu", regular))
+                pdfmetrics.registerFont(TTFont("DejaVu-Bold", bold if os.path.exists(bold) else regular))
+                _fonts = ("DejaVu", "DejaVu-Bold")
+                return _fonts
+            except Exception:  # noqa: BLE001 — битый файл шрифта: пробуем следующий
+                continue
+    _fonts = ("Helvetica", "Helvetica-Bold")
+    return _fonts
 
 HEADER_FILL = PatternFill("solid", fgColor="1F6B4A")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
@@ -125,18 +149,19 @@ def summary_xlsx(rows, title, period_label):
 def summary_pdf(rows, title, period_label):
     orgs, types, pivot, by_org = summary_data(rows)
     t = an.totals(rows)
+    F, FB = pdf_fonts()
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=15 * mm, rightMargin=15 * mm,
                             topMargin=12 * mm, bottomMargin=12 * mm, title=title)
-    h1 = ParagraphStyle("h1", fontName="DejaVu-Bold", fontSize=15, spaceAfter=4)
-    p = ParagraphStyle("p", fontName="DejaVu", fontSize=9, leading=12)
-    small = ParagraphStyle("s", fontName="DejaVu", fontSize=7.5, leading=10, textColor=colors.grey)
+    h1 = ParagraphStyle("h1", fontName=FB, fontSize=15, spaceAfter=4)
+    p = ParagraphStyle("p", fontName=F, fontSize=9, leading=12)
+    small = ParagraphStyle("s", fontName=F, fontSize=7.5, leading=10, textColor=colors.grey)
 
     story = [Paragraph(title, h1), Paragraph(f"Период: {period_label}", p), Spacer(1, 6)]
     kpi = (f"<b>Отходы:</b> {an.fmt_num(t['waste'], 0)} кг/л &nbsp;&nbsp; <b>Потери:</b> {an.fmt_money(t['money'])}"
            f" &nbsp;&nbsp; <b>CO₂:</b> {an.fmt_num(t['co2'], 0)} кг &nbsp;&nbsp; <b>Отдано излишков:</b> "
            f"{an.fmt_num(t['surplus'], 0)} кг (сэкономлено {an.fmt_money(t['saved_money'])})")
-    story += [Paragraph(kpi, ParagraphStyle("k", parent=p, fontName="DejaVu")), Spacer(1, 8)]
+    story += [Paragraph(kpi, ParagraphStyle("k", parent=p, fontName=F)), Spacer(1, 8)]
 
     data = [["Организация", "Отходы, кг/л", "Потери, ₸", "CO₂, кг", "Излишки, кг"]]
     for org in sorted(by_org, key=lambda k: -by_org[k]["money"]):
@@ -147,9 +172,9 @@ def summary_pdf(rows, title, period_label):
                  an.fmt_num(t["surplus"])])
     tbl = Table(data, colWidths=[110 * mm, 35 * mm, 40 * mm, 30 * mm, 30 * mm], repeatRows=1)
     tbl.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, -1), "DejaVu"),
-        ("FONTNAME", (0, 0), (-1, 0), "DejaVu-Bold"),
-        ("FONTNAME", (0, -1), (-1, -1), "DejaVu-Bold"),
+        ("FONTNAME", (0, 0), (-1, -1), F),
+        ("FONTNAME", (0, 0), (-1, 0), FB),
+        ("FONTNAME", (0, -1), (-1, -1), FB),
         ("FONTSIZE", (0, 0), (-1, -1), 8.5),
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F6B4A")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -168,8 +193,8 @@ def summary_pdf(rows, title, period_label):
         data2.append([wt, an.fmt_num(v), f"{v / total * 100:.1f}%"])
     tbl2 = Table(data2, colWidths=[110 * mm, 35 * mm, 25 * mm])
     tbl2.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, -1), "DejaVu"),
-        ("FONTNAME", (0, 0), (-1, 0), "DejaVu-Bold"),
+        ("FONTNAME", (0, 0), (-1, -1), F),
+        ("FONTNAME", (0, 0), (-1, 0), FB),
         ("FONTSIZE", (0, 0), (-1, -1), 8.5),
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E3EEE8")),
         ("ALIGN", (1, 0), (-1, -1), "RIGHT"),

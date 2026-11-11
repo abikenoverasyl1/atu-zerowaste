@@ -362,13 +362,16 @@ def form(org_id, d):
             until = request.form.get("until") or "16:00"
             text = (f"🥐 Бесплатно студентам: {org['name']} ({org['building']}).\n"
                     + "; ".join(parts) + f".\nЗабрать до {until}.")
-            ok = send_telegram(text)
+            tg_ok = send_telegram(text)
             conn.execute("INSERT INTO surplus_posts (org_id, text, until, ts, sent_to_telegram) VALUES (?,?,?,?,?)",
-                         (org_id, text, until, now_iso(), int(ok)))
+                         (org_id, text, until, now_iso(), int(tg_ok)))
+        else:
+            tg_ok = False
         conn.commit()
         return redirect(url_for("form", org_id=org_id, d=day.isoformat(), done=1,
                                 auto=1 if status == "accepted" else None, nowaste=1 if action == "nowaste" else None,
-                                why="; ".join(reasons) or None, gift=", ".join(parts_ui) if parts_ui else None))
+                                why="; ".join(reasons) or None, gift=", ".join(parts_ui) if parts_ui else None,
+                                tg=1 if tg_ok else None))
 
     items = {}
     photo = None
@@ -393,7 +396,7 @@ def form(org_id, d):
                            next_day=(day + timedelta(days=1)).isoformat(), day_total=day_total,
                            done=request.args.get("done") == "1", gift=request.args.get("gift"),
                            auto=request.args.get("auto") == "1", nowaste=request.args.get("nowaste") == "1",
-                           why=request.args.get("why"))
+                           why=request.args.get("why"), tg=request.args.get("tg") == "1")
 
 
 @app.route("/history")

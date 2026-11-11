@@ -265,7 +265,7 @@ def run(path=None):
             # Объявления об излишках
             for wid, q, s in items:
                 if s > 0 and status != "draft":
-                    cur.execute("INSERT INTO surplus_posts (org_id, text, until, ts, sent_to_telegram) VALUES (?,?,?,?,1)",
+                    cur.execute("INSERT INTO surplus_posts (org_id, text, until, ts, sent_to_telegram) VALUES (?,?,?,?,0)",
                                 (oid, f"{o['name']} ({o['building']}): {s:g} кг готовой продукции — бесплатно студентам".replace(".", ","),
                                  "16:00", ts(d, 14)))
         d += timedelta(days=1)
