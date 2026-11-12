@@ -4,7 +4,10 @@ erDiagram
   waste_types ||--o{ org_waste_types : "входит в"
   organizations ||--o{ reports : "сдаёт"
   reports ||--|{ report_items : "состоит из"
-  waste_types ||--o{ report_items : "вид"
+  waste_types ||--o{ report_items : "наименование"
+  disposal_methods ||--o{ report_items : "способ утилизации"
+  disposal_methods ||--o{ waste_types : "по умолчанию"
+  users ||--o{ report_items : "ответственное лицо"
   reports ||--o{ status_history : "история"
   users ||--o{ status_history : "кто изменил"
   organizations ||--o{ surplus_posts : "объявления"
@@ -12,14 +15,16 @@ erDiagram
     int id PK
     text name "Название точки"
     text slug "Адрес для QR"
-    text type "Столовая, лаборатория..."
-    text work_days "Дни отчёта"
+    text type "Столовая, кафедра..."
+    text work_days "Дни взвешиваний"
     text pin "PIN точки"
+    int active "Активна"
   }
   users {
     int id PK
     text name "ФИО"
     text login
+    text email
     text role "Ответственный, проверяющий..."
     int org_id FK
   }
@@ -31,6 +36,13 @@ erDiagram
     int edible "Бывает излишком"
     real price_per_unit "Цена сырья, тенге"
     real co2_factor "кг CO2e на кг"
+    int default_method_id FK
+    int active "Активен"
+  }
+  disposal_methods {
+    int id PK
+    text name "Вывоз ТБО, компост..."
+    int recycled "Идёт в переработку"
   }
   org_waste_types {
     int org_id FK
@@ -39,16 +51,20 @@ erDiagram
   reports {
     int id PK
     int org_id FK
-    text date "День отчёта"
+    text date "Месяц отчёта (YYYY-MM-01)"
     text status "Черновик ... Принято"
     text note "Комментарий"
   }
   report_items {
     int id PK
     int report_id FK
+    text date "Дата взвешивания"
     int waste_type_id FK
-    real qty "Масса"
+    real qty "Вес / объём"
     real surplus_qty "Отдано студентам"
+    int method_id FK
+    int created_by FK
+    text created_at
     text photo
   }
   status_history {

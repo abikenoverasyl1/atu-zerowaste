@@ -2,17 +2,17 @@
 {% block title %}{{ _('Настройки') }}{% endblock %}
 {% block content %}
 <header class="page-head">
-  <div><h1>{{ _('Настройки') }}</h1><p class="muted">{{ _('Точки, виды отходов, пользователи и QR-коды.') }}</p></div>
+  <div><h1>{{ _('Настройки') }}</h1><p class="muted">{{ _('Организации, виды отходов, способы утилизации, пользователи и QR-коды.') }}</p></div>
   <a class="btn btn-primary btn-sm" href="{{ url_for('qr_codes') }}">{{ _('QR-коды для печати') }}</a>
 </header>
 <div class="seg" id="tabs" style="margin-bottom:18px">
-  <button class="on" data-t="t-org">{{ _('Точки') }}</button><button data-t="t-wt">{{ _('Виды отходов') }}</button><button data-t="t-user">{{ _('Пользователи') }}</button>
+  <button class="on" data-t="t-org">{{ _('Точки') }}</button><button data-t="t-wt">{{ _('Виды отходов') }}</button><button data-t="t-m">{{ _('Способы утилизации') }}</button><button data-t="t-user">{{ _('Пользователи') }}</button>
 </div>
 
 <div id="t-org" class="tab">
   <section class="panel" style="padding:8px 10px">
     <div class="table-wrap"><table class="t">
-      <thead><tr><th>{{ _('Точка') }}</th><th>{{ _('Тип') }}</th><th>{{ _('Сдаёт отчёт') }}</th><th>{{ _('PIN для QR') }}</th><th>{{ _('Виды отходов в форме') }}</th></tr></thead>
+      <thead><tr><th>{{ _('Точка') }}</th><th>{{ _('Тип') }}</th><th>{{ _('Сдаёт отчёт') }}</th><th>{{ _('PIN для QR') }}</th><th>{{ _('Виды отходов в форме') }}</th><th>{{ _('Активна') }}</th></tr></thead>
       <tbody>
       {% set wd = ['', _('пн'), _('вт'), _('ср'), _('чт'), _('пт'), _('сб'), _('вс')] %}
       {% for o in orgs %}
@@ -21,7 +21,9 @@
           <td><form method="post" style="display:flex;gap:6px"><input type="hidden" name="what" value="pin"><input type="hidden" name="org_id" value="{{ o['id'] }}">
             <input class="input num" name="pin" value="{{ o['pin'] or '' }}" pattern="[0-9]{4}" maxlength="4" inputmode="numeric" style="width:84px;min-height:38px;padding:6px 10px">
             <button class="btn btn-sm">OK</button></form></td>
-          <td><small>{% for t in (o['types'] or '').split('|') %}{{ _(t) }}{{ ', ' if not loop.last }}{% endfor %}</small></td></tr>
+          <td><small>{% for t in (o['types'] or '').split('|') %}{{ _(t) }}{{ ', ' if not loop.last }}{% endfor %}</small></td>
+          <td><form method="post"><input type="hidden" name="what" value="org_active"><input type="hidden" name="org_id" value="{{ o['id'] }}">
+            <button class="btn btn-sm">{{ '✅ ' ~ _('да') if o['active'] else '⏸ ' ~ _('нет') }}</button></form></td></tr>
       {% endfor %}
       </tbody>
     </table></div>
@@ -46,26 +48,45 @@
   <form method="post" class="panel" style="padding:8px 10px">
     <input type="hidden" name="what" value="wt">
     <div class="table-wrap"><table class="t">
-      <thead><tr><th>{{ _('Вид отхода') }}</th><th>{{ _('Цена сырья, ₸ за кг/л') }}</th><th>{{ _('Можно переработать') }}</th><th>{{ _('Бывает съедобным излишком') }}</th></tr></thead>
+      <thead><tr><th>{{ _('Вид отхода') }}</th><th>{{ _('Цена сырья, ₸ за кг/л') }}</th><th>{{ _('Можно переработать') }}</th><th>{{ _('Бывает съедобным излишком') }}</th><th>{{ _('Способ по умолчанию') }}</th><th>{{ _('Активен') }}</th></tr></thead>
       <tbody>
       {% for w in wts %}
         <tr><td>{{ icon(w['name']) }} {{ _(w['name']) }} <small>({{ _(w['unit']) }})</small></td>
           <td><input class="input" style="max-width:120px; min-height:40px" name="price_{{ w['id'] }}" value="{{ w['price_per_unit']|int }}" type="number" step="1"></td>
           <td><input type="checkbox" name="rec_{{ w['id'] }}" {{ 'checked' if w['recyclable'] }} style="width:20px;height:20px"></td>
-          <td><input type="checkbox" name="ed_{{ w['id'] }}" {{ 'checked' if w['edible'] }} style="width:20px;height:20px"></td></tr>
+          <td><input type="checkbox" name="ed_{{ w['id'] }}" {{ 'checked' if w['edible'] }} style="width:20px;height:20px"></td>
+          <td><select class="input" name="m_{{ w['id'] }}" style="min-height:40px">{% for m in methods %}<option value="{{ m['id'] }}" {{ 'selected' if w['default_method_id'] == m['id'] }}>{{ _(m['name']) }}</option>{% endfor %}</select></td>
+          <td><input type="checkbox" name="act_{{ w['id'] }}" {{ 'checked' if w['active'] }} style="width:20px;height:20px">{% if w['used'] %}<br><small class="muted">{{ _('записей: {n}', n=w['used']) }}</small>{% endif %}</td></tr>
       {% endfor %}
       </tbody>
     </table></div>
     <div style="padding:12px"><button class="btn btn-primary">{{ _('Сохранить справочник') }}</button>
-      <small style="margin-left:10px">{{ _('Цена сырья — оценка, от неё считаются потери в тенге.') }}</small></div>
+      <small style="margin-left:10px">{{ _('Цена сырья — оценка, от неё считаются потери в тенге. Виды с записями не удаляются, а отключаются — история сохраняется.') }}</small></div>
   </form>
+</div>
+
+<div id="t-m" class="tab" hidden>
+  <section class="panel" style="padding:8px 10px">
+    <div class="table-wrap"><table class="t">
+      <thead><tr><th>{{ _('Способ переработки / утилизации') }}</th><th>{{ _('Идёт в переработку') }}</th><th class="r">{{ _('Записей') }}</th></tr></thead>
+      <tbody>{% for m in methods %}<tr><td>{{ _(m['name']) }}</td><td>{{ '♻️ ' ~ _('да') if m['recycled'] else _('нет, полигон') }}</td><td class="r num">{{ m['used'] }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  <details class="more"><summary>{{ _('Добавить способ') }}</summary>
+    <form method="post" class="panel" style="margin-top:8px">
+      <input type="hidden" name="what" value="method">
+      <label class="field"><span>{{ _('Название') }}</span><input class="input" name="name" required placeholder="{{ _('Например: Передача на биогазовую установку') }}"></label>
+      <label class="chip" style="display:inline-block; margin-bottom:12px"><input type="checkbox" name="recycled"> {{ _('Отходы идут в переработку, а не на полигон') }}</label><br>
+      <button class="btn btn-primary">{{ _('Добавить способ') }}</button>
+    </form>
+  </details>
 </div>
 
 <div id="t-user" class="tab" hidden>
   <section class="panel" style="padding:8px 10px">
     <div class="table-wrap"><table class="t">
-      <thead><tr><th>{{ _('Имя') }}</th><th>{{ _('Логин') }}</th><th>{{ _('Роль') }}</th><th>{{ _('Точка') }}</th></tr></thead>
-      <tbody>{% for u in users %}<tr><td>{{ u['name'] }}</td><td>{{ u['login'] }}</td><td>{{ _(ROLES[u['role']]) }}</td><td>{{ _(u['org']) if u['org'] else '' }}</td></tr>{% endfor %}</tbody>
+      <thead><tr><th>{{ _('Имя') }}</th><th>{{ _('Логин') }}</th><th>Email</th><th>{{ _('Роль') }}</th><th>{{ _('Точка') }}</th></tr></thead>
+      <tbody>{% for u in users %}<tr><td>{{ u['name'] }}</td><td>{{ u['login'] }}</td><td><small>{{ u['email'] or '' }}</small></td><td>{{ _(ROLES[u['role']]) }}</td><td>{{ _(u['org']) if u['org'] else '' }}</td></tr>{% endfor %}</tbody>
     </table></div>
   </section>
   <details class="more"><summary>{{ _('Добавить пользователя') }}</summary>
@@ -73,6 +94,7 @@
       <input type="hidden" name="what" value="user">
       <label class="field"><span>{{ _('ФИО') }}</span><input class="input" name="name" required></label>
       <label class="field"><span>{{ _('Логин') }}</span><input class="input" name="login" required autocapitalize="none"></label>
+      <label class="field"><span>Email</span><input class="input" type="email" name="email"></label>
       <label class="field"><span>{{ _('Пароль') }}</span><input class="input" name="password" required></label>
       <label class="field"><span>{{ _('Роль') }}</span><select class="input" name="role">{% for k, v in ROLES.items() %}<option value="{{ k }}">{{ _(v) }}</option>{% endfor %}</select></label>
       <label class="field"><span>{{ _('Точка (для ответственного лица)') }}</span><select class="input" name="org_id"><option value="">{{ _('Без точки') }}</option>{% for o in orgs %}<option value="{{ o['id'] }}">{{ _(o['name']) }}</option>{% endfor %}</select></label>

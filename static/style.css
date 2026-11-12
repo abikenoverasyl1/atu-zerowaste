@@ -376,3 +376,12 @@ dialog { background: var(--surface); color: var(--ink); }
 dialog::backdrop { background: rgba(0, 0, 0, .4); }
 .qr-card .qr { background: #fff; padding: 8px; border-radius: 12px; box-sizing: content-box; }
 [data-theme="dark"] .tile .t-ico, [data-theme="dark"] .nav-link .ico { filter: saturate(.9); }
+
+/* лист «весы»: способ утилизации — компактные чипсы, лист прокручивается на маленьких экранах */
+.sheet { max-height: 94vh; overflow-y: auto; }
+#methods .chip { padding: 5px 10px; font-size: .84rem; }
+.sheet .keys button { min-height: 50px; }
+.sheet .photo-pick { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: .9rem; color: var(--ink-2); cursor: pointer; }
+.sheet .scale { padding: 10px 16px 12px; margin: 8px 0 10px; }
+.sheet .scale .s-read { font-size: 2.6rem; }
+.sheet .gift-toggle { margin: 10px 0; }

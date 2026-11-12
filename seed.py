@@ -1,8 +1,9 @@
-"""Генератор демо-данных: 9 организаций АТУ, ~3 месяца ежедневных отчётов.
+"""Генератор демо-данных по ТЗ трека 1: 5 организаций АТУ, виды отходов — по образцам таблиц учёта,
+отчёт = месяц, запись = одно взвешивание (дата, наименование, вес/объём, способ утилизации, ответственный).
 
-Все объёмы — ОЦЕНКИ для демонстрации (не реальные данные АТУ):
-опора — исследования университетских столовых (~60 г отходов на порцию),
-коэффициент CO2 — DEFRA 2022 (0,627 кг CO2e на кг пищевых отходов на полигоне).
+Объёмы — ОЦЕНКИ для демонстрации, не реальные данные АТУ.
+CO2: 0,627 кг CO2e на кг пищевых отходов на полигоне (UK DEFRA 2022); для упаковки, стекла, пластика,
+металла и масла CO2 при захоронении в MVP не считается (коэффициент 0).
 
 Запуск:  python seed.py          (пересоздаёт zerowaste.db)
 """
@@ -16,130 +17,118 @@ import db
 
 random.seed(42)
 TODAY = date.today()
-START = TODAY - timedelta(days=95)   # чуть больше 3 месяцев истории по каждой точке
+START = TODAY - timedelta(days=95)   # больше 3 месяцев истории по каждой организации
 DEMO_PASSWORD = "demo"
 
-# ---------- Виды отходов ----------
-# (ключ, название, ед., пригоден к переработке, может быть съедобным излишком, ₸ за ед. сырья — оценка)
+# ---------- Способы переработки / утилизации ----------
+# (ключ, название, отходы реально идут в переработку)
+METHODS = [
+    ("tbo", "Вывоз ТБО", 0),
+    ("bak", "Вывоз ТБО (мусорный бак)", 0),
+    ("recycle", "Передача на переработку (вторсырьё)", 1),
+    ("compost", "Компостирование", 1),
+    ("feed", "На корм животным", 1),
+    ("oil", "Сдача отработанного масла переработчику", 1),
+]
+
+# ---------- Виды отходов по образцам таблиц АТУ ----------
+# (ключ, название, ед., пригоден к переработке, съедобный излишок, пищевой, ₸ за ед. сырья — оценка, способ по умолчанию)
 WASTE_TYPES = [
-    ("plate", "Остатки с тарелок", "кг", 1, 0, 450),
-    ("bread", "Хлеб и выпечка", "кг", 1, 1, 350),
-    ("garnish", "Гарниры (рис, макароны, картофель)", "кг", 1, 0, 300),
-    ("peel", "Очистки и обрезки овощей", "кг", 1, 0, 80),
-    ("unsold", "Непроданные блюда", "кг", 1, 1, 900),
-    ("expired", "Испорченные и просроченные продукты (в упаковке)", "кг", 0, 0, 700),
-    ("dough", "Тесто и брак выпечки", "кг", 1, 0, 300),
-    ("product", "Готовая продукция занятий", "кг", 1, 1, 600),
-    ("meat", "Мясные обрезки и кости", "кг", 1, 0, 900),
-    ("meat_defect", "Брак мясных изделий", "кг", 1, 0, 1800),
-    ("whey", "Молочная сыворотка", "л", 1, 0, 50),
-    ("dairy_defect", "Брак молочной продукции", "кг", 1, 0, 600),
-    ("confect", "Кондитерский брак (крем, обрезки)", "кг", 1, 0, 900),
-    ("edu_defect", "Учебный брак блюд", "кг", 1, 0, 800),
-    ("breakfast", "Остатки завтраков отеля", "кг", 1, 1, 700),
-    ("coffee", "Кофейный жмых", "кг", 1, 0, 0),
-    ("milk", "Молоко (тренировки бариста)", "л", 1, 0, 650),
-    ("samples", "Образцы после анализов", "кг", 0, 0, 500),
+    # Кафедра ТПП
+    ("pack", "Упаковочные отходы", "кг", 0, 0, 0, 0, "tbo"),
+    ("meat_bones", "Мясные кости", "кг", 1, 0, 1, 400, "tbo"),
+    ("fish_bones", "Рыбные кости", "кг", 1, 0, 1, 400, "tbo"),
+    # Кафедра ТХиПП
+    ("egg", "Яичная скорлупа", "кг", 1, 0, 1, 0, "tbo"),
+    ("sucrose", "Сахароза", "кг", 1, 0, 1, 500, "tbo"),
+    ("pet", "ПЭТ-бутылка 1,0 л (растительное масло)", "кг", 1, 0, 0, 0, "tbo"),
+    ("glass", "Стеклобутылка", "кг", 1, 0, 0, 0, "tbo"),
+    ("bakery", "Отходы образцов хлебобулочных изделий", "кг", 1, 1, 1, 400, "tbo"),
+    ("confect", "Отходы образцов кондитерских изделий", "кг", 1, 1, 1, 900, "tbo"),
+    ("fruitveg", "Отходы фруктов и овощей", "кг", 1, 0, 1, 300, "tbo"),
+    ("alu", "Алюминиевые банки", "кг", 1, 0, 0, 0, "tbo"),
+    # ATU INN и Столовый комплекс
+    ("peel", "Очистки овощей", "кг", 1, 0, 1, 80, "bak"),
+    ("meat_trim", "Обрезки мясопродуктов", "кг", 1, 0, 1, 900, "bak"),
+    ("hall", "Пищевые отходы из зала", "кг", 1, 0, 1, 450, "bak"),
+    ("unsold", "Остатки нереализованной продукции", "кг", 1, 1, 1, 900, "bak"),
+    ("oil", "Отработанное масло", "л", 1, 0, 0, 700, "tbo"),
+    ("carton", "Картонная тара", "кг", 1, 0, 0, 0, "bak"),
+    # Кофейня
+    ("coffee", "Кофейный жмых", "кг", 1, 0, 1, 0, "bak"),
+    ("food_left", "Остатки еды", "кг", 1, 1, 1, 600, "bak"),
 ]
 
-# ---------- Организации ----------
-# work_days: дни недели, когда точка обязана сдавать отчёт (1=пн ... 7=вс), '' = нерегулярно
-# template: {вид отхода: базовый объём в рабочий день}
+# ---------- 5 организаций из ТЗ ----------
+# work_days: дни недели со взвешиваниями (1=пн … 7=вс); у кафедр — дни лабораторных занятий
+# template: {вид отхода: (базовый объём за день, число взвешиваний в день)}
 ORGS = [
-    dict(slug="stolovaya-1", name="Столовая главного корпуса", type="canteen", building="Главный корпус",
-         work_days="123456",
-         template={"plate": 22, "bread": 7, "garnish": 9, "peel": 12, "unsold": 6, "expired": 1.5}),
-    dict(slug="stolovaya-2", name="Столовая корпуса 2", type="canteen", building="Корпус 2",
-         work_days="12345",
-         template={"plate": 12, "bread": 4, "garnish": 5, "peel": 7, "unsold": 3, "expired": 1}),
-    dict(slug="bufet", name="Буфет корпуса 407", type="buffet", building="Корпус 407",
-         work_days="12345",
-         template={"bread": 4, "unsold": 5, "expired": 1.2}),
-    dict(slug="atu-inn", name="ATU Inn (ресторан, отель, кофейня)", type="inn", building="ATU Inn",
-         work_days="1234567",
-         template={"peel": 4, "plate": 4, "edu_defect": 3, "breakfast": 1.5, "coffee": 3, "milk": 2.5,
-                   "product": 1.5}),
-    dict(slug="lab-hleb", name="Лаборатория хлебопечения", type="edu_lab", building="Корпус 3",
-         work_days="135",
-         template={"dough": 3.2, "product": 2.5}),
-    dict(slug="lab-myaso", name="Лаборатория технологии мяса", type="edu_lab", building="Корпус 3",
-         work_days="24",
-         template={"meat": 5, "meat_defect": 1.2}),
-    dict(slug="lab-moloko", name="Лаборатория молочных продуктов", type="edu_lab", building="Корпус 3",
-         work_days="25",
-         template={"whey": 18, "dairy_defect": 1.8}),
-    dict(slug="lab-konditer", name="Кондитерская лаборатория", type="edu_lab", building="Корпус 3",
-         work_days="34",
-         template={"confect": 2.5, "product": 2}),
-    dict(slug="lab-nauka", name="Научная лаборатория пищевой безопасности", type="sci_lab", building="Корпус 5",
-         work_days="",
-         template={"samples": 1.0}),
+    dict(slug="iskander", name="Столовый комплекс корп. 1, 2 (ИП «Искандер»)", type="canteen",
+         building="Корпуса 1 и 2", work_days="123456", login="iskander", person="Айгерим Сапарова",
+         template={"peel": (14, 1), "meat_trim": (4, 1), "hall": (26, 2), "unsold": (8, 1), "oil": (0.8, 1),
+                   "carton": (3, 1)}),
+    dict(slug="atu-inn", name="Учебно-гостиничный комплекс ATU INN", type="inn",
+         building="ATU INN", work_days="1234567", login="inn", person="Ерлан Нурланов",
+         template={"peel": (4, 1), "meat_trim": (1.5, 1), "hall": (4.5, 1), "unsold": (2, 1), "oil": (0.3, 1),
+                   "carton": (1.5, 1)}),
+    dict(slug="canella", name="Кофейня АТУ (ИП «Canella»)", type="cafe",
+         building="Главный корпус", work_days="123456", login="canella", person="Динара Ахметова",
+         template={"coffee": (3, 1), "carton": (1.4, 1), "food_left": (1.2, 1)}),
+    dict(slug="kaf-tpp", name="Кафедра ТПП", type="dept_lab",
+         building="Корпус 3", work_days="24", login="kaf_tpp", person="Тимур Жаксылыков",
+         template={"pack": (1.5, 1), "meat_bones": (3, 1), "fish_bones": (1.2, 1)}),
+    dict(slug="kaf-thipp", name="Кафедра ТХиПП", type="dept_lab",
+         building="Корпус 3", work_days="135", login="kaf_thipp", person="Гульнара Бекова",
+         template={"egg": (0.6, 1), "sucrose": (0.3, 1), "pet": (0.25, 1), "glass": (0.8, 1), "bakery": (2.2, 1),
+                   "confect": (1.4, 1), "fruitveg": (1.2, 1), "alu": (0.2, 1)}),
 ]
-
-LOGINS = {
-    "stolovaya-1": ("stol1", "Айгерим Сапарова"),
-    "stolovaya-2": ("stol2", "Марина Ким"),
-    "bufet": ("bufet", "Динара Ахметова"),
-    "atu-inn": ("inn", "Ерлан Нурланов"),
-    "lab-hleb": ("lab_hleb", "Гульнара Бекова"),
-    "lab-myaso": ("lab_myaso", "Тимур Жаксылыков"),
-    "lab-moloko": ("lab_moloko", "Асель Омарова"),
-    "lab-konditer": ("lab_konditer", "Сауле Иманова"),
-    "lab-nauka": ("lab_nauka", "Арман Сейтказы"),
-}
 
 AUTO_COMMENT = "Принято автоматически: все значения в пределах нормы"
 RETURN_COMMENTS = [
-    "Масса хлеба выглядит завышенной — перепроверьте взвешивание.",
-    "Не указаны очистки, хотя кухня работала. Дополните, пожалуйста.",
-    "Сыворотку нужно указывать в литрах, а не в килограммах.",
-    "Приложите фото контейнера с непроданными блюдами.",
+    "Масса пищевых отходов из зала выглядит завышенной — перепроверьте взвешивание.",
+    "Не указаны очистки овощей, хотя кухня работала. Дополните, пожалуйста.",
+    "Отработанное масло нужно указывать в литрах, а не в килограммах.",
+    "Укажите даты лабораторных занятий для всех записей.",
 ]
 
 
 def season_factor(d: date, org_type: str) -> float:
-    """Летом (до 1 сентября) кампус почти пустой."""
-    if d < date(d.year, 9, 1) and d.month in (6, 7, 8):
-        # летом кампус почти пустой; в лабораториях — летняя практика и подготовка к семестру
-        return {"canteen": 0.3, "buffet": 0.25, "inn": 0.6, "edu_lab": 0.4, "sci_lab": 0.6}.get(org_type, 0.0)
+    """Летом кампус почти пустой; на кафедрах — летняя практика."""
+    if d.month in (6, 7, 8):
+        return {"canteen": 0.3, "cafe": 0.3, "inn": 0.6, "dept_lab": 0.4}.get(org_type, 0.0)
     return 1.0
 
 
 def daily_qty(org, key, base, d: date) -> float:
     k = season_factor(d, org["type"])
-    if k == 0:
-        return 0.0
     wd = d.isoweekday()
     m = 1.0
-    # закономерности, которые потом «найдут» рекомендации
-    if org["slug"] == "stolovaya-1" and key == "bread" and wd == 1:
-        m *= 1.7                               # «понедельничный хлеб»
+    # закономерности, которые потом «найдут» рекомендации и аналитика
+    if org["slug"] == "iskander" and key == "unsold" and wd == 1:
+        m *= 1.7                                       # по понедельникам остаётся больше
     if org["type"] == "canteen" and wd == 6:
-        m *= 0.5                               # суббота — мало студентов
-    if org["slug"] == "bufet":
-        weeks_to_end = (TODAY - d).days / 7
-        if weeks_to_end < 4:
-            m *= 1.3                           # рост за последний месяц
-    if org["slug"] == "stolovaya-2" and key == "expired" and d == TODAY - timedelta(days=26):
-        m *= 9                                 # сломался холодильник
-    if org["slug"] == "atu-inn" and key == "milk" and wd == 6:
-        m *= 3                                 # суббота — курсы бариста
-    if org["slug"] == "atu-inn" and wd in (6, 7) and key == "breakfast":
-        m *= 1.8                               # в выходные больше гостей
-    noise = random.uniform(0.8, 1.2)
-    return round(max(base * k * m * noise, 0), 1)
-
-
-def is_report_day(org, d: date) -> bool:
-    if season_factor(d, org["type"]) == 0:
-        return False
-    if org["work_days"] == "":
-        return random.random() < 0.35          # научная лаборатория — нерегулярно
-    return str(d.isoweekday()) in org["work_days"]
+        m *= 0.5                                       # суббота — мало студентов
+    if org["slug"] == "iskander" and key == "meat_trim" and d == TODAY - timedelta(days=26):
+        m *= 6                                         # сломался холодильник
+    if org["slug"] == "atu-inn" and wd in (6, 7) and key in ("hall", "unsold"):
+        m *= 1.6                                       # в выходные больше гостей
+    if org["slug"] == "canella" and (TODAY - d).days < 28:
+        m *= 1.25                                      # рост за последний месяц
+    if org["slug"] == "kaf-thipp" and key in ("bakery", "confect") and d.month == 10:
+        m *= 1.2                                       # в октябре больше практических занятий
+    return round(max(base * k * m * random.uniform(0.8, 1.2), 0), 2)
 
 
 def ts(d: date, hh: int, mm: int = 0) -> str:
     return datetime(d.year, d.month, d.day, hh, mm).isoformat(timespec="minutes")
+
+
+def month_start(d: date) -> date:
+    return d.replace(day=1)
+
+
+def month_end(d: date) -> date:
+    return (d.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
 
 
 def run(path=None):
@@ -150,134 +139,134 @@ def run(path=None):
     db.init_schema(conn)
     cur = conn.cursor()
 
-    wt_ids = {}
-    for key, name, unit, rec, edible, price in WASTE_TYPES:
-        cur.execute("INSERT INTO waste_types (name, unit, recyclable, edible, price_per_unit) VALUES (?,?,?,?,?)",
-                    (name, unit, rec, edible, price))
-        wt_ids[key] = cur.lastrowid
+    mt_ids = {}
+    for key, name, rec in METHODS:
+        mt_ids[key] = cur.execute("INSERT INTO disposal_methods (name, recycled) VALUES (?,?)", (name, rec)).lastrowid
+
+    wt_ids, wt_food = {}, {}
+    for key, name, unit, rec, edible, food, price, method in WASTE_TYPES:
+        wt_ids[key] = cur.execute(
+            "INSERT INTO waste_types (name, unit, recyclable, edible, food, price_per_unit, co2_factor, default_method_id) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (name, unit, rec, edible, food, price, 0.627 if food else 0.0, mt_ids[method])).lastrowid
+        wt_food[key] = (method, unit)
 
     pw = generate_password_hash(DEMO_PASSWORD)
-    cur.execute("INSERT INTO users (name, login, password_hash, role) VALUES (?,?,?,?)",
-                ("Администратор системы", "admin", pw, "admin"))
-    cur.execute("INSERT INTO users (name, login, password_hash, role) VALUES (?,?,?,?)",
-                ("Эколог АТУ (проверяющий)", "proverka", pw, "reviewer"))
-    reviewer_id = cur.lastrowid
-    cur.execute("INSERT INTO users (name, login, password_hash, role) VALUES (?,?,?,?)",
-                ("Проректор по АХР", "rukovodstvo", pw, "management"))
+    cur.execute("INSERT INTO users (name, login, email, password_hash, role) VALUES (?,?,?,?,?)",
+                ("Администратор системы", "admin", "admin@atu.kz", pw, "admin"))
+    reviewer_id = cur.execute("INSERT INTO users (name, login, email, password_hash, role) VALUES (?,?,?,?,?)",
+                              ("Эколог АТУ (проверяющий)", "proverka", "eco@atu.kz", pw, "reviewer")).lastrowid
+    cur.execute("INSERT INTO users (name, login, email, password_hash, role) VALUES (?,?,?,?,?)",
+                ("Проректор по АХР", "rukovodstvo", "ahr@atu.kz", pw, "management"))
 
     org_ids, resp_ids = {}, {}
-    for o in ORGS:
-        pin = f"{len(org_ids) + 1}" * 4          # демо: 1111, 2222, … 9999
-        cur.execute("INSERT INTO organizations (name, slug, type, building, work_days, pin) VALUES (?,?,?,?,?,?)",
-                    (o["name"], o["slug"], o["type"], o["building"], o["work_days"], pin))
-        oid = cur.lastrowid
+    for n, o in enumerate(ORGS, start=1):
+        oid = cur.execute("INSERT INTO organizations (name, slug, type, building, work_days, pin) VALUES (?,?,?,?,?,?)",
+                          (o["name"], o["slug"], o["type"], o["building"], o["work_days"], str(n) * 4)).lastrowid
         org_ids[o["slug"]] = oid
         for i, key in enumerate(o["template"]):
             cur.execute("INSERT INTO org_waste_types (org_id, waste_type_id, sort) VALUES (?,?,?)",
                         (oid, wt_ids[key], i))
-        login, name = LOGINS[o["slug"]]
-        cur.execute("INSERT INTO users (name, login, password_hash, role, org_id) VALUES (?,?,?,?,?)",
-                    (name, login, pw, "responsible", oid))
-        resp_ids[o["slug"]] = cur.lastrowid
+        resp_ids[o["slug"]] = cur.execute(
+            "INSERT INTO users (name, login, email, password_hash, role, org_id) VALUES (?,?,?,?,?,?)",
+            (o["person"], o["login"], f"{o['login']}@atu.kz", pw, "responsible", oid)).lastrowid
 
-    # Рабочие дни каждой точки и её последний рабочий день до сегодня
-    days = {}
-    d = START
-    while d <= TODAY:
-        for o in ORGS:
-            if is_report_day(o, d):
-                days.setdefault(o["slug"], set()).add(d)
-        d += timedelta(days=1)
-    last_day = {s: max((x for x in ds if x < TODAY), default=None) for s, ds in days.items()}
+    # Месяцы в периоде
+    months = []
+    m = month_start(START)
+    while m <= TODAY:
+        months.append(m)
+        m = month_end(m) + timedelta(days=1)
+    cur_month = month_start(TODAY)
+    last_month = months[-2]
 
-    d = START
-    while d <= TODAY:
-        for o in ORGS:
-            if d not in days.get(o["slug"], ()):
-                continue
-            slug, oid, uid = o["slug"], org_ids[o["slug"]], resp_ids[o["slug"]]
-            yesterday = last_day[slug]
-
-            # Свежие дни — разные статусы, чтобы было что показать в демо
-            if d == TODAY:
-                if slug not in ("stolovaya-1", "lab-hleb", "atu-inn"):
-                    continue                    # остальные ещё не начали
-                status = "draft"
-            elif d == yesterday:
-                if slug == "bufet":
-                    continue                    # буфет не сдал отчёт — видно в контроле
-                # во «Входящих» — только то, что система не приняла сама
-                status = {"stolovaya-1": "submitted", "atu-inn": "submitted", "stolovaya-2": "in_review",
-                          "lab-moloko": "returned"}.get(slug, "accepted")
+    for o in ORGS:
+        slug, oid, uid = o["slug"], org_ids[o["slug"]], resp_ids[o["slug"]]
+        for ms in months:
+            # Статус отчёта за месяц — чтобы в демо было что показать
+            if ms == cur_month:
+                status = "draft"                              # текущий месяц ещё заполняется
+            elif ms == last_month and slug == "canella":
+                status = "submitted"                          # ждёт проверки во «Входящих»
+            elif ms == last_month and slug == "kaf-thipp":
+                status = "in_review"
+            elif ms == last_month and slug == "kaf-tpp":
+                status = "returned"                           # вернули, кафедра ещё не исправила → «не сдан»
             else:
                 status = "accepted"
-
-            items = []
-            for key, base in o["template"].items():
-                q = daily_qty(o, key, base, d)
-                if q <= 0:
-                    continue
-                surplus = 0.0
-                # съедобные излишки: часть готовой продукции отдают студентам (с октября — после запуска)
-                if key == "product" and d >= TODAY - timedelta(days=35):
-                    surplus = round(q * random.uniform(0.5, 0.8), 1)
-                items.append((wt_ids[key], q, surplus))
-            if not items:
-                continue
-
-            note = None
-            if d == yesterday and slug == "stolovaya-1":      # всплеск гарнира → ручная проверка
-                items = [(w, round(q * 2.6, 1) if w == wt_ids["garnish"] else q, s) for w, q, s in items]
-            if d == yesterday and slug == "atu-inn":
-                note = "Был банкет на 40 человек, остались закуски"
-            cur.execute("INSERT INTO reports (org_id, date, status, note, created_by, updated_at) VALUES (?,?,?,?,?,?)",
-                        (oid, d.isoformat(), status, note, uid, ts(d, 17)))
-            rid = cur.lastrowid
-            for wid, q, s in items:
-                cur.execute("INSERT INTO report_items (report_id, waste_type_id, qty, surplus_qty) VALUES (?,?,?,?)",
-                            (rid, wid, q, s))
+            note = "Санитарный день 14.10, кофейня не работала" if (ms == last_month and slug == "canella") else None
+            rid = cur.execute("INSERT INTO reports (org_id, date, status, note, created_by, updated_at) "
+                              "VALUES (?,?,?,?,?,?)", (oid, ms.isoformat(), status, note, uid,
+                                                       ts(min(month_end(ms), TODAY), 18))).lastrowid
+            d = max(ms, START)
+            last_day = min(month_end(ms), TODAY - timedelta(days=1))   # сегодня — пусто, для живого демо
+            while d <= last_day:
+                if str(d.isoweekday()) in o["work_days"]:
+                    for key, (base, times) in o["template"].items():
+                        q = daily_qty(o, key, base, d)
+                        if q <= 0:
+                            continue
+                        method_key = wt_food[key][0]
+                        # с октября часть картона и масла сдают в переработку — видно долю «фактически переработано»
+                        if key == "carton" and d >= date(d.year, 10, 1) and random.random() < 0.4:
+                            method_key = "recycle"
+                        if key == "oil" and slug == "atu-inn" and d >= date(d.year, 10, 1):
+                            method_key = "oil"
+                        if key == "coffee" and random.random() < 0.3:
+                            method_key = "compost"
+                        parts = [0.7, 0.3] if times == 2 else [1.0]
+                        for pi, share in enumerate(parts):
+                            qty = round(q * share, 1)
+                            if qty <= 0:
+                                continue
+                            surplus = 0.0
+                            # съедобные излишки отдают студентам (с середины октября — после запуска)
+                            if key in ("unsold", "food_left", "bakery", "confect") and d >= TODAY - timedelta(days=35):
+                                surplus = round(qty * random.uniform(0.3, 0.6), 1)
+                            cur.execute("INSERT INTO report_items (report_id, date, waste_type_id, qty, surplus_qty, "
+                                        "method_id, created_by, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                                        (rid, d.isoformat(), wt_ids[key], qty, surplus, mt_ids[method_key], uid,
+                                         ts(d, 14 + pi * 4, random.randint(0, 59))))
+                            if surplus > 0:
+                                cur.execute("INSERT INTO surplus_posts (org_id, text, until, ts, sent_to_telegram) "
+                                            "VALUES (?,?,?,?,0)",
+                                            (oid, f"{o['name']} ({o['building']}): {surplus:g} кг — бесплатно студентам"
+                                                  .replace(".", ","), "16:00", ts(d, 14)))
+                d += timedelta(days=1)
 
             # История статусов
+            sub_day = min(month_end(ms) + timedelta(days=2), TODAY)
             if status != "draft":
                 cur.execute("INSERT INTO status_history (report_id, status, user_id, comment, ts) VALUES (?,?,?,?,?)",
-                            (rid, "submitted", uid, note, ts(d, 17, 30)))
-            was_returned = status == "accepted" and random.random() < 0.04
-            if was_returned:
+                            (rid, "submitted", uid, note, ts(sub_day, 10)))
+            if status == "accepted":
+                was_returned = random.random() < 0.15
+                if was_returned:
+                    cur.execute("INSERT INTO status_history (report_id, status, user_id, comment, ts) VALUES (?,?,?,?,?)",
+                                (rid, "returned", reviewer_id, random.choice(RETURN_COMMENTS), ts(sub_day, 15)))
+                    cur.execute("INSERT INTO status_history (report_id, status, user_id, comment, ts) VALUES (?,?,?,?,?)",
+                                (rid, "submitted", uid, "Исправлено", ts(sub_day + timedelta(days=1), 11)))
+                if was_returned or random.random() < 0.4:      # проверяющий смотрел вручную
+                    cur.execute("INSERT INTO status_history (report_id, status, user_id, ts) VALUES (?,?,?,?)",
+                                (rid, "accepted", reviewer_id, ts(sub_day + timedelta(days=1), 16)))
+                else:                                          # в пределах нормы — система приняла сама
+                    cur.execute("INSERT INTO status_history (report_id, status, user_id, comment, ts) VALUES (?,?,?,?,?)",
+                                (rid, "accepted", None, AUTO_COMMENT, ts(sub_day, 10, 1)))
+            if status == "returned":
                 cur.execute("INSERT INTO status_history (report_id, status, user_id, comment, ts) VALUES (?,?,?,?,?)",
-                            (rid, "returned", reviewer_id, random.choice(RETURN_COMMENTS), ts(d + timedelta(days=1), 10)))
-                cur.execute("INSERT INTO status_history (report_id, status, user_id, comment, ts) VALUES (?,?,?,?,?)",
-                            (rid, "submitted", uid, "Исправлено", ts(d + timedelta(days=1), 12)))
+                            (rid, "returned", reviewer_id, "Не указан способ утилизации для упаковки — уточните по акту",
+                             ts(sub_day, 15)))
             if status == "in_review":
                 cur.execute("INSERT INTO status_history (report_id, status, user_id, ts) VALUES (?,?,?,?)",
                             (rid, "in_review", reviewer_id, ts(TODAY, 9, 15)))
-            if status == "returned":
-                cur.execute("INSERT INTO status_history (report_id, status, user_id, comment, ts) VALUES (?,?,?,?,?)",
-                            (rid, "returned", reviewer_id, RETURN_COMMENTS[2], ts(TODAY, 9, 40)))
-            if status == "accepted":
-                anomaly = slug == "stolovaya-2" and d == TODAY - timedelta(days=26)
-                if was_returned or anomaly or random.random() < 0.12:   # проверяющий смотрел вручную
-                    cur.execute("INSERT INTO status_history (report_id, status, user_id, ts) VALUES (?,?,?,?)",
-                                (rid, "accepted", reviewer_id, ts(d + timedelta(days=1), 15)))
-                else:                                        # в пределах нормы — система приняла сама
-                    cur.execute("INSERT INTO status_history (report_id, status, user_id, comment, ts) VALUES (?,?,?,?,?)",
-                                (rid, "accepted", None, AUTO_COMMENT, ts(d, 17, 31)))
-
-            # Объявления об излишках
-            for wid, q, s in items:
-                if s > 0 and status != "draft":
-                    cur.execute("INSERT INTO surplus_posts (org_id, text, until, ts, sent_to_telegram) VALUES (?,?,?,?,0)",
-                                (oid, f"{o['name']} ({o['building']}): {s:g} кг готовой продукции — бесплатно студентам".replace(".", ","),
-                                 "16:00", ts(d, 14)))
-        d += timedelta(days=1)
 
     conn.commit()
-    n = conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0]
+    n = conn.execute("SELECT COUNT(*) FROM report_items").fetchone()[0]
     kg = conn.execute("SELECT ROUND(SUM(qty)) FROM report_items").fetchone()[0]
     conn.close()
-    print(f"Готово: {path}\n  отчётов: {n}, всего отходов: {kg} кг/л, период {START} — {TODAY}")
-    print("  PIN точек для входа по QR: 1111 (столовая 1), 2222, … 5555 (хлебопечение), … 9999")
-    print(f"  логины: admin, proverka, rukovodstvo, stol1, stol2, bufet, inn, lab_hleb, lab_myaso, "
-          f"lab_moloko, lab_konditer, lab_nauka — пароль '{DEMO_PASSWORD}'")
+    print(f"Готово: {path}\n  записей (взвешиваний): {n}, всего {kg} кг/л, период {START} — {TODAY}")
+    print("  PIN для входа по QR: 1111 Искандер, 2222 ATU INN, 3333 Canella, 4444 ТПП, 5555 ТХиПП")
+    print(f"  логины: admin, proverka, rukovodstvo, iskander, inn, canella, kaf_tpp, kaf_thipp — пароль '{DEMO_PASSWORD}'")
 
 
 if __name__ == "__main__":

@@ -8,18 +8,12 @@
 {% if done %}
   <section class="done">
     <svg class="check" viewBox="0 0 96 96" aria-hidden="true"><circle cx="48" cy="48" r="48"/><path d="M28 50 l14 13 l26 -30"/></svg>
-    {% if nowaste %}
-      <h1>{{ _('Записали: отходов не было') }}</h1>
-      <p class="muted" style="margin-top:8px">{{ _('День {d} закрыт, напоминаний не будет.', d=day.strftime('%d.%m')) }}</p>
-    {% elif auto %}
-      <h1>{{ _('Принято') }}</h1>
-      <p class="muted" style="margin-top:8px">{{ _('{kg} кг за {d}. Всё в пределах обычного, поэтому система приняла отчёт сама.', kg=fmt_num(day_total), d=day.strftime('%d.%m')) }}</p>
+    {% if auto %}
+      <h1>{{ _('Отчёт за {m} принят', m=month) }}</h1>
+      <p class="muted" style="margin-top:8px">{{ _('{kg} кг за месяц. Всё в пределах обычного, поэтому система приняла отчёт сама.', kg=fmt_num(total|float)) }}</p>
     {% else %}
-      <h1>{{ _('Отправлено на проверку') }}</h1>
-      <p class="muted" style="margin-top:8px">{{ _('{kg} кг за {d}. Проверяющий посмотрит вручную.', kg=fmt_num(day_total), d=day.strftime('%d.%m')) }}{% if why %} {{ _('Причина: {why}.', why=why) }}{% endif %}</p>
-    {% endif %}
-    {% if gift %}
-      <div class="gift-note">🥐 {% if tg %}{{ _('Студенты увидят объявление: {gift}. Его опубликовали на странице «Излишки» и в Telegram-канале.', gift=gift) }}{% else %}{{ _('Студенты увидят объявление: {gift}. Оно появилось на странице «Излишки».', gift=gift) }}{% endif %}</div>
+      <h1>{{ _('Отчёт за {m} отправлен', m=month) }}</h1>
+      <p class="muted" style="margin-top:8px">{{ _('{kg} кг за месяц. Проверяющий посмотрит вручную.', kg=fmt_num(total|float)) }}{% if why %} {{ _('Причина: {why}.', why=why) }}{% endif %}</p>
     {% endif %}
     <div style="margin-top:28px; display:grid; gap:10px">
       <a class="btn btn-primary btn-lg" href="{{ url_for('history') if g.user['role'] == 'responsible' else url_for('index') }}">{{ _('Готово') }}</a>
@@ -30,11 +24,17 @@
 
 <header>
   <h1>{{ _(org['name']) }}</h1>
+  <div style="display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap">
+    <span class="muted">{{ _('Отчёт за {m}', m=month) }}</span>
+    <span class="pill st-{{ report['status'] if report else 'draft' }}">{{ _(STATUSES[report['status'] if report else 'draft']) }}</span>
+  </div>
   <div class="day-switch">
     <a class="btn btn-sm" href="{{ url_for('form', org_id=org['id'], d=prev_day) }}" aria-label="{{ _('Предыдущий день') }}">‹</a>
-    <span class="num" style="font-weight:600">{% if day == today %}{{ _('Сегодня') }}, {% endif %}{{ day.strftime('%d.%m.%Y') }}</span>
+    <label class="num" style="font-weight:600; display:flex; align-items:center; gap:6px">
+      {% if day == today %}{{ _('Сегодня') }},{% endif %}
+      <input type="date" class="input" id="dayPick" value="{{ day.isoformat() }}" max="{{ today.isoformat() }}" style="width:auto; padding:6px 10px">
+    </label>
     {% if day < today %}<a class="btn btn-sm" href="{{ url_for('form', org_id=org['id'], d=next_day) }}" aria-label="{{ _('Следующий день') }}">›</a>{% endif %}
-    {% if report %}<span class="pill st-{{ report['status'] }}" style="margin-left:auto">{{ _(STATUSES[report['status']]) }}</span>{% endif %}
   </div>
 </header>
 
@@ -42,77 +42,111 @@
   <div class="alert alert-danger" style="margin-top:18px">{{ _('Проверяющий вернул отчёт: «{c}». Исправьте и отправьте снова.', c=last['comment']) }}</div>
 {% endif %}
 
-<form method="post" enctype="multipart/form-data" id="wf">
-  <div style="display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-top:18px">
-    <p class="muted">{% if editable %}{{ _('Взвесили — нажмите на плитку. Каждое взвешивание прибавляется к итогу дня.') }}{% else %}{{ _('Отчёт отправлен, менять его уже нельзя.') }}{% endif %}</p>
-  </div>
-  {% if editable and ai_photo_on %}
-  <div class="tools" style="margin-top:14px">
-    <button type="button" class="btn" id="photoBtn">📷 {{ _('Фото — ИИ подскажет вид') }}</button>
-    <input type="file" accept="image/*" capture="environment" id="aiPhoto" hidden>
-  </div>
-  <div class="ai-box" id="aiBox" hidden></div>
+<div class="kpis" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px">
+  <div class="panel" style="padding:12px 14px"><small class="muted">{{ _('Итого за день') }}</small><div class="num" style="font:600 1.4rem var(--display)"><span id="dayTotal">{{ fmt_num(day_total, 2) }}</span> {{ _('кг') }}</div></div>
+  <div class="panel" style="padding:12px 14px"><small class="muted">{{ _('Итого за месяц') }}</small><div class="num" style="font:600 1.4rem var(--display)"><span id="monthTotal">{{ fmt_num(month_total, 2) }}</span> {{ _('кг') }}</div><small class="muted">{{ _('записей: {n}', n=n_items) }}</small></div>
+</div>
+
+<p class="muted" style="margin-top:16px">{% if editable %}{{ _('Взвесили — нажмите на плитку. Каждое взвешивание сохраняется отдельной записью сразу.') }}{% else %}{{ _('Отчёт за месяц отправлен, менять его уже нельзя.') }}{% endif %}</p>
+{% if editable and ai_photo_on %}
+<div class="tools" style="margin-top:10px">
+  <button type="button" class="btn" id="photoBtn">📷 {{ _('Фото — ИИ подскажет вид') }}</button>
+  <input type="file" accept="image/*" capture="environment" id="aiPhoto" hidden>
+</div>
+<div class="ai-box" id="aiBox" hidden></div>
+{% endif %}
+
+<div class="tiles" id="tiles" style="margin-top:10px">
+  {% for w in template %}
+    {% set q = day_by_type.get(w['id'], 0) %}
+    <button type="button" class="tile {{ 'filled' if q }}" data-id="{{ w['id'] }}" data-name="{{ _(w['name']) }}"
+            data-unit="{{ _(w['unit']) }}" data-edible="{{ w['edible'] }}" data-method="{{ w['default_method_id'] or '' }}" {{ 'disabled' if not editable }}>
+      <span class="t-ico" aria-hidden="true">{{ icon(w['name']) }}</span>
+      <span class="t-name">{{ _(w['name']) }}</span>
+      <span class="t-val num">{{ fmt_num(q, 2) }} <small>{{ _(w['unit']) }}</small></span>
+      <small class="muted">{{ _('за месяц') }}: {{ fmt_num(month_by_type.get(w['id'], 0)) }}</small>
+    </button>
+  {% endfor %}
+  {% if editable %}
+    <button type="button" class="tile add" onclick="addType.showModal()"><span style="font-size:26px">＋</span><span class="t-name">{{ _('Другой вид отхода') }}</span></button>
   {% endif %}
-  <div class="tiles" style="margin-top:10px">
-    {% for w in template %}
-      {% set it = items.get(w['id']) %}
-      <button type="button" class="tile {{ 'filled' if it and it['qty'] }}" data-id="{{ w['id'] }}" data-name="{{ _(w['name']) }}"
-              data-unit="{{ _(w['unit']) }}" data-edible="{{ w['edible'] }}" {{ 'disabled' if not editable }}>
-        {% if it and it['surplus_qty'] %}<span class="t-gift">🥐 {{ fmt_num(it['surplus_qty']) }}</span>{% endif %}
-        <span class="t-ico" aria-hidden="true">{{ icon(w['name']) }}</span>
-        <span class="t-name">{{ _(w['name']) }}</span>
-        <span class="t-val num">{{ fmt_num(it['qty']) if it and it['qty'] else '0' }} <small>{{ _(w['unit']) }}</small></span>
-      </button>
-      <input type="hidden" name="qty_{{ w['id'] }}" value="{{ it['qty'] if it else '' }}">
-      <input type="hidden" name="surplus_{{ w['id'] }}" value="{{ it['surplus_qty'] if it and it['surplus_qty'] else '' }}">
+</div>
+
+<section class="panel">
+  <h3 class="panel-title">{{ _('Записи за {d}', d=day.strftime('%d.%m.%Y')) }}</h3>
+  {% for i in day_items %}
+    <div class="list-row">
+      <div>
+        <b>{{ _(i['name']) }}</b> — <span class="num">{{ fmt_num(i['qty'], 2) }} {{ _(i['unit']) }}</span>
+        {% if i['surplus_qty'] %}<span class="chip gift">🥐 {{ fmt_num(i['surplus_qty']) }}</span>{% endif %}
+        <div><small class="muted">{{ _(i['method'] or '—') }} · {{ i['user_name'] or '' }} · {{ (i['created_at'] or '')[11:16] }}</small>
+        {% if i['photo'] %} · <a href="{{ url_for('uploaded', name=i['photo']) }}" target="_blank">📷</a>{% endif %}</div>
+      </div>
+      {% if editable %}
+      <form method="post" onsubmit="return confirm({{ _('Удалить запись?')|tojson|forceescape }})">
+        <input type="hidden" name="action" value="delete"><input type="hidden" name="item_id" value="{{ i['id'] }}">
+        <button class="btn btn-ghost btn-sm" aria-label="{{ _('Удалить') }}">✕</button>
+      </form>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="muted">{{ _('За этот день записей нет.') }}</p>
+  {% endfor %}
+</section>
+
+{% if month_by_type %}
+<details class="more" open>
+  <summary>{{ _('Итоги месяца по видам отходов') }}</summary>
+  <div class="panel" style="margin-top:8px">
+    {% for w in template if month_by_type.get(w['id']) %}
+      <div class="list-row"><span>{{ _(w['name']) }}</span><b class="num">{{ fmt_num(month_by_type[w['id']]) }} {{ _(w['unit']) }}</b></div>
     {% endfor %}
-    {% if editable %}
-      <button type="button" class="tile add" onclick="addType.showModal()"><span style="font-size:26px">＋</span><span class="t-name">{{ _('Другой вид отхода') }}</span></button>
-    {% endif %}
+    <div class="list-row" style="margin-top:6px"><small class="muted">{{ _('Дни с записями') }}</small>
+      <small class="num">{% for d, v in by_day[:31] %}<a href="{{ url_for('form', org_id=org['id'], d=d) }}" class="chip" style="display:inline-block; margin:2px">{{ d[8:10] }}: {{ fmt_num(v) }}</a>{% endfor %}</small></div>
   </div>
-  {% if editable %}<div class="saved-hint" id="savedHint">{% if report and report['status'] == 'draft' %}{{ _('Черновик сохранён') }}{% endif %}</div>{% endif %}
+</details>
+{% endif %}
 
-  {% if editable %}
-  <details class="more">
-    <summary>{{ _('Комментарий и фото') }}</summary>
-    <div class="panel" style="margin-top:8px">
-      <label class="field"><span>{{ _('Комментарий (отчёт посмотрит проверяющий)') }}</span><input class="input" name="note" value="{{ (report['note'] or '') if report else '' }}" placeholder="{{ _('Например: сломался холодильник') }}"></label>
-      <label class="field"><span>{{ _('Фото контейнера') }}</span><input class="input" type="file" name="photo" accept="image/*" capture="environment"></label>
-      <label class="field" style="margin:0"><span>{{ _('Излишки можно забрать до') }}</span><input class="input" type="time" name="until" value="16:00"></label>
-    </div>
-  </details>
-  <button class="btn btn-ghost btn-block" name="action" value="nowaste" style="margin-top:8px"
-          onclick="return confirm({{ _('Записать, что сегодня отходов не было?')|tojson|forceescape }})">{{ _('Сегодня отходов не было') }}</button>
-  {% endif %}
-  {% if photo %}<p style="margin-top:12px"><a href="{{ url_for('uploaded', name=photo) }}" target="_blank">📷 {{ _('Фото к отчёту') }}</a></p>{% endif %}
+{% if editable %}
+<details class="more">
+  <summary>{{ _('Комментарий к отчёту за месяц') }}</summary>
+  <form method="post" class="panel" style="margin-top:8px">
+    <input type="hidden" name="action" value="note">
+    <label class="field"><span>{{ _('Комментарий (отчёт посмотрит проверяющий)') }}</span><input class="input" name="note" value="{{ (report['note'] or '') if report else '' }}" placeholder="{{ _('Например: санитарный день, точка не работала') }}"></label>
+    <button class="btn">{{ _('Сохранить комментарий') }}</button>
+  </form>
+</details>
+{% endif %}
 
-  {% if history %}
-  <details class="more">
-    <summary>{{ _('История отчёта') }}</summary>
-    <div class="panel" style="margin-top:8px">
-      {% for h in history %}
-        <div class="list-row"><div><span class="pill st-{{ h['status'] }}">{{ _(STATUSES[h['status']]) }}</span>
-          <div><small>{{ h['user_name'] or _('Система') }}</small></div>
-          {% if h['comment'] %}<div style="margin-top:4px">«{{ h['comment'] }}»</div>{% endif %}</div>
-          <small class="num">{{ h['ts'][8:10] }}.{{ h['ts'][5:7] }} {{ h['ts'][11:16] }}</small></div>
-      {% endfor %}
-    </div>
-  </details>
-  {% endif %}
-
-  {% if editable %}
-  <div class="dock">
-    <div class="dock-in">
-      <div class="dock-total"><small>{{ _('Итого за день') }}</small><div class="v num"><span id="dayTotal">0</span> кг</div></div>
-      <button type="button" class="btn btn-lg mic" id="voiceFab" hidden aria-label="{{ _('Сказать голосом') }}" title="{{ _('Сказать голосом') }}">🎤</button>
-      <button class="btn btn-primary btn-lg" name="action" value="submit" id="sendBtn">{{ _('Отправить') }}</button>
-    </div>
+{% if history %}
+<details class="more">
+  <summary>{{ _('История отчёта') }}</summary>
+  <div class="panel" style="margin-top:8px">
+    {% for h in history %}
+      <div class="list-row"><div><span class="pill st-{{ h['status'] }}">{{ _(STATUSES[h['status']]) }}</span>
+        <div><small>{{ h['user_name'] or _('Система') }}</small></div>
+        {% if h['comment'] %}<div style="margin-top:4px">«{{ _(h['comment']) }}»</div>{% endif %}</div>
+        <small class="num">{{ h['ts'][8:10] }}.{{ h['ts'][5:7] }} {{ h['ts'][11:16] }}</small></div>
+    {% endfor %}
   </div>
-  <div class="voice-hint" id="voiceHint"></div>
-  {% endif %}
-</form>
+</details>
+{% endif %}
 
-<!-- «Весы»: ввод веса -->
+{% if editable %}
+<div class="dock">
+  <div class="dock-in">
+    <div class="dock-total"><small>{{ _('За месяц') }}</small><div class="v num">{{ fmt_num(month_total) }} {{ _('кг') }}</div></div>
+    <button type="button" class="btn btn-lg mic" id="voiceFab" hidden aria-label="{{ _('Сказать голосом') }}" title="{{ _('Сказать голосом') }}">🎤</button>
+    <form method="post" style="flex:1; display:flex" onsubmit="return confirm({{ _('Отправить отчёт за месяц? После отправки записи менять нельзя.')|tojson|forceescape }})">
+      <input type="hidden" name="action" value="submit">
+      <button class="btn btn-primary btn-lg" id="sendBtn" style="flex:1" {{ 'disabled' if not n_items }}>{{ _('Отправить отчёт за месяц') }}</button>
+    </form>
+  </div>
+</div>
+<div class="voice-hint" id="voiceHint"></div>
+{% endif %}
+
+<!-- «Весы»: одно взвешивание -->
 <div class="sheet-bg" id="sheetBg"></div>
 <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sName">
   <div class="grab"></div>
@@ -120,24 +154,27 @@
     <span id="sIco" style="font-size:28px"></span><h2 id="sName" style="flex:1"></h2>
     <button type="button" class="btn btn-ghost btn-sm" id="sClose" aria-label="{{ _('Закрыть') }}">✕</button>
   </div>
-  <div class="seg mode-seg" id="modeSeg">
-    <button type="button" class="on" data-m="add">{{ _('Добавить взвешивание') }}</button><button type="button" data-m="fix">{{ _('Исправить итог') }}</button>
-  </div>
   <div class="ai-box" id="sheetAi" hidden></div>
   <div class="scale" id="scale">
     <div class="s-label" id="sLabel">{{ _('Вес') }}</div>
     <div class="s-read"><span id="sRead">0</span><small id="sUnit">кг</small></div>
     <div class="s-hint num" id="sHint"></div>
   </div>
+  <div style="margin:10px 0 4px"><small class="muted">{{ _('Способ переработки / утилизации') }}</small></div>
+  <div id="methods" style="display:flex; flex-wrap:wrap; gap:6px">
+    {% for m in methods %}<button type="button" class="chip" data-m="{{ m['id'] }}" style="border:1.5px solid transparent; cursor:pointer">{{ '♻️ ' if m['recycled'] }}{{ _(m['name']) }}</button>{% endfor %}
+  </div>
   <label class="gift-toggle" id="giftRow"><input type="checkbox" id="giftChk">
     <span>{{ _('Часть съедобна, отдадим студентам') }} <b id="giftVal"></b></span></label>
   <div class="keys" id="keys">
     {% for k in ['1','2','3','4','5','6','7','8','9','.','0','⌫'] %}<button type="button" data-k="{{ k }}">{{ ',' if k == '.' else k }}</button>{% endfor %}
   </div>
+  <label class="photo-pick">📷 <span id="sPhotoName">{{ _('Фото (необязательно)') }}</span><input type="file" id="sPhoto" accept="image/*" capture="environment" hidden></label>
   <div style="display:flex; gap:8px; margin-top:12px">
     <button type="button" class="btn btn-lg mic" id="sMic" hidden aria-label="{{ _('Сказать вес голосом') }}">🎤</button>
-    <button type="button" class="btn btn-primary btn-lg" id="sOk" style="flex:1">{{ _('Готово') }}</button>
+    <button type="button" class="btn btn-primary btn-lg" id="sOk" style="flex:1">{{ _('Записать') }}</button>
   </div>
+  <p class="muted" id="sErr" style="margin-top:8px; color:var(--tomato, #c33)"></p>
 </section>
 
 <dialog id="addType" style="border:0; border-radius:22px; padding:22px; width:min(420px, 92vw)">
@@ -145,93 +182,88 @@
     <h2 style="margin-bottom:14px">{{ _('Новый вид отхода') }}</h2>
     <label class="field"><span>{{ _('Название') }}</span><input class="input" name="name" required placeholder="{{ _('Например: мука') }}"></label>
     <label class="field"><span>{{ _('Единица') }}</span><select class="input" name="unit"><option>кг</option><option>л</option></select></label>
+    <label class="field"><span>{{ _('Способ утилизации по умолчанию') }}</span><select class="input" name="method_id">
+      {% for m in methods %}<option value="{{ m['id'] }}">{{ _(m['name']) }}</option>{% endfor %}</select></label>
     <div style="display:flex; gap:10px"><button type="button" class="btn" onclick="addType.close()">{{ _('Отмена') }}</button>
       <button class="btn btn-primary" style="flex:1">{{ _('Добавить в форму') }}</button></div>
   </form>
 </dialog>
+<div id="dayItems" hidden data-items='{{ day_items|map(attribute="waste_type_id")|list|tojson }}' data-qty='{{ day_items|map(attribute="qty")|list|tojson }}'></div>
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
-{% if not done and editable %}
+{% if not done %}
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const T = {{ js_t|tojson }};          // переводы для текста, который пишет скрипт
+  if ($('dayPick')) $('dayPick').onchange = e => { if (e.target.value) location.href = '{{ url_for("form", org_id=org["id"], d="X") }}'.replace('X', e.target.value); };
+  {% if not editable %}})();{% else %}
+  const T = {{ js_t|tojson }};
   const tr = (s, o) => (T[s] || s).replace(/\{(\w+)\}/g, (m, k) => (o && k in o ? o[k] : m));
-  const form = $('wf'), sheet = $('sheet'), bg = $('sheetBg');
+  const sheet = $('sheet'), bg = $('sheetBg');
   const num = v => parseFloat(v) || 0;
-  const show = v => (Math.round(v * 10) / 10).toString().replace('.', ',');
-  const field = (id, kind) => form.querySelector(`[name=${kind}_${id}]`);
-  // fresh: первое нажатие заменяет число на экране весов
-  let cur = null, mode = 'qty', how = 'add', buf = {qty: '', surplus: ''}, base = {qty: 0, surplus: 0}, fresh = true;
+  const show = v => (Math.round(v * 100) / 100).toString().replace('.', ',');
+  const form = $('tiles');   // для поиска плиток голосом
+  const dayIds = JSON.parse($('dayItems').dataset.items), dayQty = JSON.parse($('dayItems').dataset.qty);
+  let cur = null, mode = 'qty', buf = {qty: '', surplus: ''}, fresh = true, method = null, busy = false;
 
-  function total() {
-    let s = 0; form.querySelectorAll('[name^=qty_]').forEach(i => s += num(i.value));
-    $('dayTotal').textContent = show(s);
-  }
-  const result = k => how === 'add' ? base[k] + num(buf[k]) : num(buf[k]);
   function render() {
-    $('sRead').textContent = (how === 'add' && buf[mode] ? '+' : '') + (buf[mode] === '' ? '0' : buf[mode].replace('.', ','));
+    $('sRead').textContent = buf[mode] === '' ? '0' : buf[mode].replace('.', ',');
     $('scale').classList.toggle('gift', mode === 'surplus');
-    $('sLabel').textContent = mode === 'surplus' ? (how === 'add' ? tr('Ещё отдаём студентам') : tr('Всего отдаём студентам'))
-                                                 : (how === 'add' ? tr('Новое взвешивание') : tr('Итог за день'));
-    const u = cur.dataset.unit, k = mode;
-    $('sHint').textContent = how === 'add' && base[k] ? tr('было {a} {u} → станет {b} {u}', {a: show(base[k]), b: show(result(k)), u}) : '';
-    $('giftVal').textContent = (how === 'add' ? base.surplus + num(buf.surplus) : num(buf.surplus)) ? `— ${show(result('surplus'))} ${u}` : '';
-    document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.m === how));
+    $('sLabel').textContent = mode === 'surplus' ? tr('Из них отдаём студентам') : tr('Вес взвешивания');
+    $('sHint').textContent = '';
+    $('giftVal').textContent = num(buf.surplus) ? `— ${show(num(buf.surplus))} ${cur.dataset.unit}` : '';
+    document.querySelectorAll('#methods .chip').forEach(c => {
+      const on = c.dataset.m === String(method);
+      c.style.borderColor = on ? 'var(--basil)' : 'transparent'; c.style.background = on ? 'var(--basil-soft)' : '';
+    });
   }
   function open(tile, preset, aiNote) {
-    cur = tile; mode = 'qty'; fresh = true;
-    base = {qty: num(field(tile.dataset.id, 'qty').value), surplus: num(field(tile.dataset.id, 'surplus').value)};
-    how = 'add'; buf = {qty: preset ? String(preset) : '', surplus: ''};
-    $('modeSeg').style.display = base.qty ? '' : 'none';
+    cur = tile; mode = 'qty'; fresh = true; buf = {qty: preset ? String(preset) : '', surplus: ''};
+    method = tile.dataset.method || document.querySelector('#methods .chip').dataset.m;
     $('sName').textContent = tile.dataset.name;
     $('sIco').textContent = tile.querySelector('.t-ico').textContent;
     $('sUnit').textContent = tile.dataset.unit;
     $('giftRow').style.display = tile.dataset.edible === '1' ? '' : 'none';
-    $('giftChk').checked = false;
+    $('giftChk').checked = false; $('sErr').textContent = ''; $('sPhoto').value = ''; $('sPhotoName').textContent = tr('Фото (необязательно)');
     $('sheetAi').hidden = !aiNote; if (aiNote) { $('sheetAi').className = 'ai-box' + (aiNote.warn ? ' warn' : ''); $('sheetAi').textContent = aiNote.text; }
     render(); sheet.classList.add('open'); bg.classList.add('open');
   }
   function close() { sheet.classList.remove('open'); bg.classList.remove('open'); }
 
-  async function autosave() {
-    const data = new FormData(form); data.set('action', 'draft');
+  async function save() {
+    if (busy) return;
+    const q = num(buf.qty), s = Math.min(num(buf.surplus), q), id = cur.dataset.id;
+    if (q <= 0) { $('sErr').textContent = tr('Введите вес больше нуля'); return; }
+    // ФТ-1.6: предупреждение о возможном дубле — тот же вид и тот же вес уже записаны сегодня
+    if (dayIds.some((w, k) => String(w) === id && Math.abs(dayQty[k] - q) < 0.001) &&
+        !confirm(tr('Такая запись уже есть за этот день ({n}, {q}). Это новое взвешивание, а не повтор?', {n: cur.dataset.name, q: show(q)}))) return;
+    const data = new FormData();
+    data.set('action', 'add'); data.set('waste_type_id', id); data.set('qty', q); data.set('surplus', s); data.set('method_id', method);
+    if ($('sPhoto').files[0]) data.set('photo', $('sPhoto').files[0]);
+    busy = true; $('sOk').disabled = true;
     try {
       const r = await fetch(location.pathname, {method: 'POST', body: data, headers: {'X-Fetch': '1'}});
       const j = await r.json();
-      $('savedHint').textContent = j.ok ? tr('Сохранено в {t}. Можно закрыть и вернуться позже.', {t: j.saved}) : j.error;
-    } catch (e) { $('savedHint').textContent = tr('Нет связи — данные сохранятся при отправке.'); }
-  }
-  function save() {
-    let q = result('qty'), s = result('surplus');
-    q = Math.round(q * 10) / 10; s = Math.min(Math.round(s * 10) / 10, q);
-    const id = cur.dataset.id;
-    field(id, 'qty').value = q || ''; field(id, 'surplus').value = s || '';
-    cur.classList.toggle('filled', q > 0);
-    cur.querySelector('.t-val').innerHTML = `${show(q)} <small>${cur.dataset.unit}</small>`;
-    let g = cur.querySelector('.t-gift');
-    if (s > 0) { if (!g) { g = document.createElement('span'); g.className = 't-gift'; cur.prepend(g); } g.textContent = '🥐 ' + show(s); }
-    else if (g) g.remove();
-    cur.classList.remove('pop'); void cur.offsetWidth; cur.classList.add('pop');
-    total(); close(); autosave();
+      if (!j.ok) { $('sErr').textContent = j.error; return; }
+      sessionStorage.setItem('zw_toast', j.surplus ? tr('Записано. Объявление об излишке опубликовано.') : tr('Записано'));
+      location.reload();
+    } catch (e) { $('sErr').textContent = tr('Нет связи. Попробуйте ещё раз.'); }
+    finally { busy = false; $('sOk').disabled = false; }
   }
   function press(k) {
     let b = fresh && k !== '⌫' ? '' : buf[mode];
     fresh = false;
     if (k === '⌫') b = b.slice(0, -1);
     else if (k === '.') { if (!b.includes('.')) b = (b || '0') + '.'; }
-    else if (b.includes('.')) { if (b.split('.')[1].length >= 1) return; b += k; }   // один знак после запятой
-    else { if (b.length >= 3) return; b = (b === '0' ? '' : b) + k; }                // до 999
+    else if (b.includes('.')) { if (b.split('.')[1].length >= 2) return; b += k; }
+    else { if (b.length >= 4) return; b = (b === '0' ? '' : b) + k; }
     buf[mode] = b; render();
   }
-  form.querySelectorAll('.tile[data-id]').forEach(t => t.addEventListener('click', () => open(t)));
+  document.querySelectorAll('.tile[data-id]').forEach(t => t.addEventListener('click', () => open(t)));
   $('keys').addEventListener('click', e => e.target.dataset.k && press(e.target.dataset.k));
-  $('modeSeg').addEventListener('click', e => { if (e.target.dataset.m) { how = e.target.dataset.m;
-    if (how === 'fix' && !buf.qty) buf = {qty: String(base.qty), surplus: base.surplus ? String(base.surplus) : ''};
-    if (how === 'add') buf = {qty: '', surplus: ''};
-    fresh = true; render(); } });
+  $('methods').addEventListener('click', e => { const c = e.target.closest('.chip'); if (c) { method = c.dataset.m; render(); } });
   $('giftChk').addEventListener('change', e => { mode = e.target.checked ? 'surplus' : 'qty'; fresh = true; render(); });
   document.addEventListener('keydown', e => {
     if (!sheet.classList.contains('open')) return;
@@ -241,8 +273,10 @@
     if (e.key === 'Enter') { e.preventDefault(); save(); }
     if (e.key === 'Escape') close();
   });
+  $('sPhoto').onchange = e => { if (e.target.files[0]) $('sPhotoName').textContent = '✓ ' + e.target.files[0].name; };
   $('sOk').onclick = save; $('sClose').onclick = close; bg.onclick = close;
-  total();
+  const toast = sessionStorage.getItem('zw_toast');
+  if (toast) { sessionStorage.removeItem('zw_toast'); setTimeout(() => hint(toast), 50); }
 
   // ---------- Голос: «очистки три с половиной» ----------
   const WORDS = {ноль: 0, один: 1, одна: 1, одну: 1, два: 2, две: 2, три: 3, четыре: 4, пять: 5, шесть: 6, семь: 7, восемь: 8,
@@ -329,6 +363,7 @@
     });
   }
 })();
+{% endif %}
 </script>
 {% endif %}
 {% endblock %}

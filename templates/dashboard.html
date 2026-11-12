@@ -17,7 +17,9 @@
   <div class="facts">
     <div class="fact"><div class="v num">{{ fmt_big(per_month(t.money)) }}</div><div class="l">{{ _('теряем в месяц') }}</div></div>
     <div class="fact"><div class="v num">{{ fmt_mass(t.co2) }}</div><div class="l">{{ _('CO₂ на полигоне') }}</div></div>
-    <div class="fact"><div class="v num">{{ '%.0f'|format(t.recyclable_share) }}%</div><div class="l">{{ _('можно переработать') }}</div></div>
+    <div class="fact"><div class="v num">{{ '%.0f'|format(t.recycled_share) }}%</div><div class="l">{{ _('фактически переработано') }} <small>({{ _('можно {p}%', p='%.0f'|format(t.recyclable_share)) }})</small></div></div>
+    <div class="fact"><div class="v num">{% if mom.pct is not none %}{{ '+' if mom.pct > 0 }}{{ '%.0f'|format(mom.pct) }}%{% else %}—{% endif %}</div>
+      <div class="l">{{ _('{a} к {b}', a=mom.cur_label, b=mom.prev_label) }} <small>({{ _('за {n} дн.: {x} против {y}', n=mom.days, x=fmt_mass(mom.cur), y=fmt_mass(mom.prev)) }})</small></div></div>
     <div class="fact gift"><div class="v num">{{ fmt_mass(t.surplus) }}</div><div class="l">{{ _('еды отдали студентам') }}</div></div>
   </div>
 </section>
@@ -28,31 +30,32 @@
     <button class="btn btn-sm" id="sumBtn">{{ _('Составить сводку для руководства') }}</button>
   </div>
   <form class="ask" id="askForm">
-    <input class="input" id="askQ" placeholder="{{ _('Спросите про данные, например: почему выросли потери в буфете?') if ai_on else _('Вопросы к ИИ заработают после подключения ключа') }}" {{ 'disabled' if not ai_on }}>
+    <input class="input" id="askQ" placeholder="{{ _('Спросите про данные, например: почему выросли отходы в кофейне?') if ai_on else _('Вопросы к ИИ заработают после подключения ключа') }}" {{ 'disabled' if not ai_on }}>
     <button class="btn btn-primary" {{ 'disabled' if not ai_on }}>{{ _('Спросить') }}</button>
   </form>
   {% if ai_on %}
   <div class="ask-chips">
     <button type="button">{{ _('Где мы теряем больше всего денег?') }}</button>
     <button type="button">{{ _('Что изменилось за последний месяц?') }}</button>
-    <button type="button">{{ _('Как сократить отходы хлеба?') }}</button>
+    <button type="button">{{ _('Сколько отходов реально уходит в переработку?') }}</button>
     <button type="button">{{ _('Какие точки плохо сдают отчёты?') }}</button>
   </div>
   {% endif %}
   <div class="ai-answer" id="aiAnswer"></div>
 </section>
 
-<div class="grid-2">
-  <section class="panel">
-    <div class="panel-title">
-      <h2 id="chartTitle">{{ _('Как менялось по неделям') }}</h2>
-      <div class="seg" id="chartSeg">
-        <button class="on" data-c="weekly">{{ _('Динамика') }}</button><button data-c="org">{{ _('По точкам') }}</button><button data-c="types">{{ _('Состав') }}</button>
-      </div>
-    </div>
-    <div class="chart-box"><canvas id="chart" aria-label="{{ _('График отходов') }}"></canvas></div>
-  </section>
+<div class="charts3" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:16px; margin-bottom:16px">
+  <section class="panel" style="grid-column:1 / -1"><div class="panel-title"><h2>{{ _('Динамика по месяцам, кг') }}</h2><small>{{ _('по организациям') }}</small></div>
+    <div class="chart-box"><canvas id="cMonthly" aria-label="{{ _('Динамика по месяцам') }}"></canvas></div></section>
+  <section class="panel"><div class="panel-title"><h2>{{ _('Структура отходов') }}</h2></div>
+    <div class="chart-box"><canvas id="cTypes" aria-label="{{ _('Структура отходов') }}"></canvas></div></section>
+  <section class="panel"><div class="panel-title"><h2>{{ _('Сравнение организаций, кг') }}</h2></div>
+    <div class="chart-box"><canvas id="cOrg" aria-label="{{ _('Сравнение организаций') }}"></canvas></div></section>
+  <section class="panel"><div class="panel-title"><h2>{{ _('Способы утилизации') }}</h2></div>
+    <div class="chart-box"><canvas id="cMethods" aria-label="{{ _('Способы утилизации') }}"></canvas></div></section>
+</div>
 
+<div>
   <section class="panel">
     <div class="panel-title"><h2>{{ _('Что сделать') }}</h2><small>{{ _('экономия в месяц') }}</small></div>
     <div class="todo">
@@ -70,8 +73,8 @@
 
 <div class="grid-2" style="margin-top:16px">
   <section class="panel">
-    <div class="panel-title"><h2>{{ _('Не сдали отчёт') }}</h2><small>{{ _('за 7 дней') }}</small></div>
-    {% for m in missing %}<div class="list-row"><span>{{ _(m.org) }}</span><small class="num">{{ m.date[8:10] }}.{{ m.date[5:7] }}</small></div>
+    <div class="panel-title"><h2>{{ _('Не сдали отчёт') }}</h2><small>{{ _('за прошедшие месяцы') }}</small></div>
+    {% for m in missing %}<div class="list-row"><span>{{ _(m.org) }}</span><small class="num">{{ m.date[5:7] }}.{{ m.date[:4] }} · {{ _(STATUSES.get(m.status, 'нет отчёта')) }}</small></div>
     {% else %}<p class="muted">{{ _('Все точки отчитались.') }}</p>{% endfor %}
   </section>
   <section class="panel">
@@ -82,7 +85,7 @@
 
 <details class="more" style="margin-top:18px"><summary>{{ _('Как считаются цифры') }}</summary>
   <ul class="muted" style="margin:6px 0 0; padding-left:20px">{% for a in assumptions %}<li>{{ _(a) }}</li>{% endfor %}</ul>
-  <p class="muted" style="margin-top:6px">{{ _('Учитываются только принятые отчёты: проверяющим или системой.') }}</p>
+  <p class="muted" style="margin-top:6px">{{ _('Учитываются все записи, включая текущий месяц; в сводном отчёте можно выбрать только принятые.') }}</p>
 </details>
 {% endblock %}
 
@@ -92,38 +95,33 @@
 const D = {{ charts|safe }};
 const T = {{ js_t|tojson }};
 const tr = (s, o) => (T[s] || s).replace(/\{(\w+)\}/g, (m, k) => (o && k in o ? o[k] : m));
-const TITLES = {weekly: tr('Как менялось по неделям'), org: tr('Где теряем больше всего, ₸'), types: tr('Из чего состоят отходы')};
-const rub = v => Math.round(v).toLocaleString('ru-RU');
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-let chart, current = 'weekly';
-function draw(kind) {
-  current = kind;
+const kg = v => (Math.round(v * 10) / 10).toLocaleString('ru-RU');
+let charts = [];
+function draw() {
   if (!window.Chart) return;
-  if (chart) chart.destroy();
+  charts.forEach(c => c.destroy()); charts = [];
   // цвета берём из темы, чтобы графики читались и на светлом, и на тёмном фоне
   const PAL = [css('--basil'), css('--yolk'), css('--sky'), css('--tomato'), '#8FCFA8', '#D9C9A3', css('--ink-2'), css('--ink-3')];
   Chart.defaults.font.family = 'Onest, system-ui, sans-serif';
   Chart.defaults.color = css('--ink-2');
   const grid = {color: css('--line')}, legend = {position: 'bottom', labels: {boxWidth: 10, boxHeight: 10, usePointStyle: true}};
-  const cfg = {
-    weekly: {type: 'line', data: {labels: D.weekly.labels, datasets: D.weekly.datasets.map((d, i) => ({...d,
-      borderColor: PAL[i], backgroundColor: PAL[i], tension: .35, borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5}))},
-      options: {plugins: {legend}, scales: {y: {beginAtZero: true, grid}, x: {grid: {display: false}}}, interaction: {mode: 'index', intersect: false}}},
-    org: {type: 'bar', data: {labels: D.org.labels, datasets: [{data: D.org.data, backgroundColor: css('--basil'), borderRadius: 8, barThickness: 18}]},
-      options: {indexAxis: 'y', plugins: {legend: {display: false}, tooltip: {callbacks: {label: c => rub(c.raw) + ' ₸'}}},
-        scales: {x: {grid, ticks: {callback: v => (v / 1000) + ' ' + tr('тыс.')}}, y: {grid: {display: false}}}}},
-    types: {type: 'doughnut', data: {labels: D.types.labels, datasets: [{data: D.types.data, backgroundColor: PAL, borderWidth: 3, borderColor: css('--surface')}]},
-      options: {cutout: '62%', plugins: {legend: {...legend, position: 'right'}}}},
-  }[kind];
-  cfg.options.maintainAspectRatio = false;
-  chart = new Chart(document.getElementById('chart'), cfg);
-  document.getElementById('chartTitle').textContent = TITLES[kind];
+  const mk = (id, cfg) => { cfg.options.maintainAspectRatio = false; charts.push(new Chart(document.getElementById(id), cfg)); };
+  mk('cMonthly', {type: 'bar', data: {labels: D.monthly.labels, datasets: D.monthly.datasets.map((d, i) => ({...d,
+      backgroundColor: PAL[i], borderRadius: 4}))},
+    options: {plugins: {legend, tooltip: {callbacks: {label: c => c.dataset.label + ': ' + kg(c.raw) + ' кг'}}},
+      scales: {y: {stacked: true, beginAtZero: true, grid}, x: {stacked: true, grid: {display: false}}}}});
+  mk('cTypes', {type: 'doughnut', data: {labels: D.types.labels, datasets: [{data: D.types.data, backgroundColor: PAL, borderWidth: 3, borderColor: css('--surface')}]},
+    options: {cutout: '60%', plugins: {legend: {...legend, position: 'right'}}}});
+  mk('cOrg', {type: 'bar', data: {labels: D.org.labels, datasets: [{data: D.org.data, backgroundColor: css('--basil'), borderRadius: 8, barThickness: 18}]},
+    options: {indexAxis: 'y', plugins: {legend: {display: false}, tooltip: {callbacks: {label: c => kg(c.raw) + ' кг'}}},
+      scales: {x: {grid}, y: {grid: {display: false}, ticks: {callback: function (v) { const l = this.getLabelForValue(v); return l.length > 22 ? l.slice(0, 21) + '…' : l; }}}}}});
+  mk('cMethods', {type: 'doughnut', data: {labels: D.methods.labels, datasets: [{data: D.methods.data, backgroundColor: [PAL[6], PAL[7], PAL[0], PAL[4], PAL[1], PAL[2]], borderWidth: 3, borderColor: css('--surface')}]},
+    options: {cutout: '60%', plugins: {legend: {...legend, position: 'right'}}}});
 }
-document.querySelectorAll('#chartSeg button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('#chartSeg button').forEach(x => x.classList.toggle('on', x === b)); draw(b.dataset.c);
-});
-window.addEventListener('themechange', () => draw(current));
-draw('weekly');
+window.addEventListener('themechange', draw);
+draw();
+const rub = v => Math.round(v).toLocaleString('ru-RU');
 
 // Один момент движения на странице: цифры в главной фразе «набегают»
 if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -141,16 +139,18 @@ if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
 const ans = document.getElementById('aiAnswer');
 document.getElementById('sumBtn').onclick = async () => {
   ans.innerHTML = '<span class="typing muted">' + tr('Собираю сводку') + '</span>';
-  try { const j = await (await fetch('{{ url_for("ai_summary") }}')).json();
-    ans.textContent = j.text + (j.note ? '\n\n' + j.note : ''); }
-  catch (e) { ans.textContent = tr('Не удалось получить сводку. Проверьте интернет.'); }
+  try { const r = await fetch('{{ url_for("ai_summary") }}');
+    if (!(r.headers.get('content-type') || '').includes('json')) throw new Error('server ' + r.status);
+    const j = await r.json(); ans.textContent = j.text + (j.note ? '\n\n' + j.note : ''); }
+  catch (e) { ans.textContent = tr('Сервер не дождался ответа. Нажмите ещё раз — второй запрос обычно быстрее.'); }
 };
 async function ask(q) {
   if (!q.trim()) return;
   ans.innerHTML = '<span class="typing muted">' + tr('Думаю') + '</span>';
   try { const r = await fetch('{{ url_for("ai_ask") }}', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({q})});
+    if (!(r.headers.get('content-type') || '').includes('json')) throw new Error('server ' + r.status);
     const j = await r.json(); ans.textContent = j.ok ? j.text : j.error; }
-  catch (e) { ans.textContent = tr('Не удалось связаться с ИИ. Проверьте интернет.'); }
+  catch (e) { ans.textContent = tr('Сервер не дождался ответа ИИ. Нажмите «Спросить» ещё раз — второй запрос обычно быстрее.'); }
 }
 document.getElementById('askForm').onsubmit = e => { e.preventDefault(); ask(document.getElementById('askQ').value); };
 document.querySelectorAll('.ask-chips button').forEach(b => b.onclick = () => { document.getElementById('askQ').value = b.textContent; ask(b.textContent); });

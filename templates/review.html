@@ -3,30 +3,45 @@
 {% block content %}
 <a href="{{ url_for('review_list', tab='auto' if auto else None) }}" class="btn btn-ghost btn-sm" style="margin-bottom:12px">‹ {{ _('Входящие') }}</a>
 <header class="page-head">
-  <div><h1>{{ _(report['org']) }}</h1><p class="muted num">{{ _('Отчёт за {d}', d=report['date'][8:10] ~ '.' ~ report['date'][5:7] ~ '.' ~ report['date'][:4]) }}</p></div>
+  <div><h1>{{ _(report['org']) }}</h1><p class="muted">{{ _('Отчёт за {m}', m=label) }} · {{ _('всего {kg} кг', kg=fmt_num(total)) }} · {{ _('записей: {n}', n=items|length) }}</p></div>
   <span class="pill st-{{ report['status'] }}">{{ _('Принято системой') if auto else _(STATUSES[report['status']]) }}</span>
 </header>
+{% if reasons and report['status'] in ('submitted', 'in_review') %}
+  <div class="alert alert-warning" style="margin-bottom:14px"><b>{{ _('Почему на ручной проверке:') }}</b> {{ reasons|join('; ') }}</div>
+{% endif %}
 <div class="grid-2">
+  <div>
   <section class="panel">
+    <h2 style="margin-bottom:8px">{{ _('Итоги по видам отходов') }}</h2>
     <div class="table-wrap"><table class="t">
-      <thead><tr><th>{{ _('Вид отхода') }}</th><th class="r">{{ _('Вес') }}</th><th class="r">{{ _('Обычно') }}</th></tr></thead>
+      <thead><tr><th>{{ _('Вид отхода') }}</th><th class="r">{{ _('За месяц') }}</th><th class="r">{{ _('Обычно') }}</th></tr></thead>
       <tbody>
-      {% for i in items %}
-        {% set a = avg.get(i['waste_type_id']) %}
-        {% set high = a and i['qty'] > a * 1.8 %}
-        <tr {% if high %}style="background:var(--yolk-soft)"{% endif %}>
-          <td>{{ icon(i['name']) }} {{ _(i['name']) }}{% if i['surplus_qty'] %}<br><small>🥐 {{ _('отдали студентам {n} {u}', n=fmt_num(i['surplus_qty']), u=_(i['unit'])) }}</small>{% endif %}</td>
-          <td class="r"><b>{{ fmt_num(i['qty']) }}</b> {{ _(i['unit']) }}</td>
-          <td class="r muted">{{ fmt_num(a) if a else '—' }}{% if high %}<br><small style="color:var(--yolk-deep)">{{ _('в {k} раза больше', k=fmt_num(i['qty'] / a)) }}</small>{% endif %}</td>
+      {% for s in summary %}
+        <tr {% if s.flag %}style="background:var(--yolk-soft)"{% endif %}>
+          <td>{{ icon(s.name) }} {{ _(s.name) }}{% if s.surplus %}<br><small>🥐 {{ _('отдали студентам {n} {u}', n=fmt_num(s.surplus), u=_(s.unit)) }}</small>{% endif %}
+            {% if s.flag == 'new' %}<br><small style="color:var(--yolk-deep)">{{ _('новый вид — нет истории') }}</small>{% endif %}</td>
+          <td class="r"><b>{{ fmt_num(s.total) }}</b> {{ _(s.unit) }}<br><small class="muted">{{ _('записей: {n}', n=s.n) }}</small></td>
+          <td class="r muted">{{ fmt_num(s.expected) if s.expected else '—' }}</td>
         </tr>
-      {% else %}
-        <tr><td colspan="3">{{ _('Отходов не было') }}</td></tr>
       {% endfor %}
       </tbody>
     </table></div>
+    <p class="muted" style="font-size:.88rem; margin-top:8px">{{ _('«Обычно» — среднее за рабочий день по принятым отчётам за 90 дней до этого месяца, умноженное на число дней с записями.') }}</p>
     {% if report['note'] %}<p style="margin-top:14px"><b>{{ _('Комментарий точки:') }}</b> {{ _(report['note']) }}</p>{% endif %}
-    {% if photo %}<img src="{{ url_for('uploaded', name=photo) }}" alt="{{ _('Фото контейнера') }}" style="margin-top:14px; max-width:100%; max-height:280px; border-radius:16px">{% endif %}
   </section>
+  <section class="panel">
+    <h2 style="margin-bottom:8px">{{ _('Все записи') }}</h2>
+    <div class="table-wrap" style="max-height:480px; overflow:auto"><table class="t">
+      <thead><tr><th>{{ _('Дата') }}</th><th>{{ _('Наименование отходов') }}</th><th class="r">{{ _('Вес / объём') }}</th><th>{{ _('Способ утилизации') }}</th><th>{{ _('Ответственное лицо') }}</th></tr></thead>
+      <tbody>
+      {% for i in items %}
+        <tr><td class="num">{{ i['date'][8:10] }}.{{ i['date'][5:7] }}</td><td>{{ _(i['name']) }}{% if i['photo'] %} <a href="{{ url_for('uploaded', name=i['photo']) }}" target="_blank">📷</a>{% endif %}</td>
+          <td class="r num">{{ fmt_num(i['qty']) }} {{ _(i['unit']) }}</td><td><small>{{ _(i['method'] or '—') }}</small></td><td><small>{{ i['user_name'] or '' }}</small></td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+  </div>
   <aside>
     {% if report['status'] in ('submitted', 'in_review') %}
     <form method="post" class="panel">
@@ -39,11 +54,13 @@
     {% elif auto %}
     <form method="post" class="panel">
       <h2 style="margin-bottom:8px">{{ _('Принято системой') }}</h2>
-      <p class="muted" style="margin-bottom:12px">{{ _('Все значения были в пределах обычного. Если что-то не так, верните отчёт повару.') }}</p>
+      <p class="muted" style="margin-bottom:12px">{{ _('Все значения были в пределах обычного. Если что-то не так, верните отчёт ответственному.') }}</p>
       <textarea class="input" name="comment" placeholder="{{ _('Что именно исправить') }}" required></textarea>
       <button class="btn btn-danger btn-block" name="action" value="return" style="margin-top:8px">{{ _('Вернуть на исправление') }}</button>
     </form>
     {% endif %}
+    {% if photos %}<section class="panel"><h2 style="margin-bottom:8px">{{ _('Фото') }}</h2>
+      {% for p in photos[:4] %}<img src="{{ url_for('uploaded', name=p['photo']) }}" alt="" style="max-width:100%; border-radius:12px; margin-bottom:8px">{% endfor %}</section>{% endif %}
     <section class="panel">
       <h2 style="margin-bottom:6px">{{ _('История') }}</h2>
       {% for h in history %}

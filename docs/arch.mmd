@@ -1,14 +1,14 @@
 flowchart TB
   subgraph USERS["Кто пользуется — с телефона или ноутбука, через браузер"]
     direction LR
-    u1["📱 Повар / лаборант<br/><small>QR + PIN, голосовой ввод</small>"]
+    u1["📱 Ответственное лицо<br/><small>QR + PIN, запись взвешиваний</small>"]
     u2["💻 Проверяющий<br/><small>входящие, реестр</small>"]
     u3["📊 Руководство<br/><small>обзор, отчёты</small>"]
     u1 ~~~ u2 ~~~ u3
   end
   subgraph APP["Веб-приложение ATU Zero Waste · Python + Flask · хостинг Render"]
     direction LR
-    m1["Формы и роли<br/><small>ввод, автосохранение</small>"]
+    m1["Журнал и роли<br/><small>взвешивания, отчёт за месяц</small>"]
     m2["Проверка<br/><small>автоприёмка по норме</small>"]
     m3["Аналитика<br/><small>₸, CO₂, рекомендации</small>"]
     m4["Отчёты<br/><small>Excel, PDF</small>"]
@@ -16,7 +16,7 @@ flowchart TB
   end
   subgraph BACK["Где хранятся данные и какие сервисы подключены"]
     direction LR
-    db[("База данных SQLite<br/><small>точки, отчёты, реестр, история</small>")]
+    db[("База данных SQLite<br/><small>организации, записи, способы утилизации, история</small>")]
     e1["🤖 Gemini API<br/><small>фото → вид отхода, сводка</small>"]
     e2["✈️ Telegram Bot API<br/><small>излишки студентам</small>"]
     db ~~~ e1 ~~~ e2

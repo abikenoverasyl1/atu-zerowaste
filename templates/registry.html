@@ -2,7 +2,7 @@
 {% block title %}{{ _('Реестр') }}{% endblock %}
 {% block content %}
 <header class="page-head">
-  <div><h1>{{ _('Реестр') }}</h1><p class="muted">{{ _('Все принятые записи. Отфильтруйте и выгрузите в Excel.') }}</p></div>
+  <div><h1>{{ _('Реестр') }}</h1><p class="muted">{{ _('Все записи взвешиваний. Отфильтруйте и выгрузите в Excel — в структуре действующих таблиц учёта.') }}</p></div>
 </header>
 <form class="filters" method="get">
   <input class="input" type="date" name="from" value="{{ f.frm }}" aria-label="{{ _('С даты') }}">
@@ -11,20 +11,24 @@
     {% for o in orgs %}<option value="{{ o['id'] }}" {{ 'selected' if f.org|string == o['id']|string }}>{{ _(o['name']) }}</option>{% endfor %}</select>
   <select class="input" name="wt" aria-label="{{ _('Вид отхода') }}"><option value="">{{ _('Все виды отходов') }}</option>
     {% for w in wts %}<option value="{{ w['id'] }}" {{ 'selected' if f.wt|string == w['id']|string }}>{{ _(w['name']) }}</option>{% endfor %}</select>
+  <select class="input" name="method" aria-label="{{ _('Способ утилизации') }}"><option value="">{{ _('Все способы утилизации') }}</option>
+    {% for m in methods %}<option value="{{ m['id'] }}" {{ 'selected' if f.method|string == m['id']|string }}>{{ _(m['name']) }}</option>{% endfor %}</select>
+  <select class="input" name="st" aria-label="{{ _('Статус') }}">{% for k, v in REG_STATUSES.items() %}<option value="{{ k }}" {{ 'selected' if f.st == k }}>{{ _(v) }}</option>{% endfor %}</select>
   <button class="btn btn-primary btn-sm">{{ _('Показать') }}</button>
   <button class="btn btn-sm" name="export" value="xlsx">{{ _('Скачать Excel') }}</button>
 </form>
-<p style="margin-bottom:14px">{{ _('{n} записей: {w} отходов, {m} потерь, {c} CO₂.', n=n, w=fmt_mass(t.waste), m=fmt_money(t.money), c=fmt_mass(t.co2)) }}{% if t.surplus %} {{ _('Отдали студентам: {s}.', s=fmt_mass(t.surplus)) }}{% endif %}</p>
+<p style="margin-bottom:14px">{{ _('{n} записей: {w} отходов, {m} потерь, {c} CO₂.', n=n, w=fmt_mass(t.waste), m=fmt_money(t.money), c=fmt_mass(t.co2)) }}{% if t.surplus %} {{ _('Отдали студентам: {s}.', s=fmt_mass(t.surplus)) }}{% endif %} {{ _('Фактически переработано: {p}%.', p='%.0f'|format(t.recycled_share)) }}</p>
 <section class="panel" style="padding:8px 10px">
   <div class="table-wrap"><table class="t">
-    <thead><tr><th>{{ _('Дата') }}</th><th>{{ _('Точка') }}</th><th>{{ _('Вид отхода') }}</th><th class="r">{{ _('Вес') }}</th><th class="r">{{ _('Потери') }}</th><th class="r">CO₂, кг</th></tr></thead>
+    <thead><tr><th>{{ _('Дата') }}</th><th>{{ _('Организация') }}</th><th>{{ _('Наименование отходов') }}</th><th class="r">{{ _('Вес / объём') }}</th><th>{{ _('Способ переработки / утилизации') }}</th><th>{{ _('Ответственное лицо') }}</th><th>{{ _('Статус') }}</th></tr></thead>
     <tbody>
     {% for r in rows %}
-      <tr><td class="num">{{ r.date[8:10] }}.{{ r.date[5:7] }}</td><td>{{ _(r.org) }}</td><td>{{ icon(r.wt) }} {{ _(r.wt) }}</td>
-        <td class="r">{{ fmt_num(r.qty) }} {{ _(r.unit) }}{% if r.surplus_qty %}<br><small style="color:var(--yolk-deep)">🥐 {{ _('отдали {n}', n=fmt_num(r.surplus_qty)) }}</small>{% endif %}</td>
-        <td class="r">{{ fmt_money(r.money) }}</td><td class="r">{{ fmt_num(r.co2) }}</td></tr>
+      <tr><td class="num">{{ r.date[8:10] }}.{{ r.date[5:7] }}.{{ r.date[2:4] }}</td><td><small>{{ _(r.org) }}</small></td><td>{{ icon(r.wt) }} {{ _(r.wt) }}</td>
+        <td class="r num">{{ fmt_num(r.qty) }} {{ _(r.unit) }}{% if r.surplus_qty %}<br><small style="color:var(--yolk-deep)">🥐 {{ _('отдали {n}', n=fmt_num(r.surplus_qty)) }}</small>{% endif %}</td>
+        <td><small>{{ '♻️ ' if r.recycled }}{{ _(r.method or '—') }}</small></td><td><small>{{ r.user_name or '' }}</small></td>
+        <td><span class="pill st-{{ r.status }}">{{ _(STATUSES[r.status]) }}</span></td></tr>
     {% else %}
-      <tr><td colspan="6"><div class="empty">{{ _('За этот период принятых записей нет. Попробуйте расширить даты.') }}</div></td></tr>
+      <tr><td colspan="7"><div class="empty">{{ _('За этот период записей нет. Попробуйте расширить даты.') }}</div></td></tr>
     {% endfor %}
     </tbody>
   </table></div>

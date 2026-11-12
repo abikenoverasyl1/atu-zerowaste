@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ _('Входящие') }}{% endblock %}
 {% block content %}
-{% set WD = ['по воскресеньям', 'по понедельникам', 'по вторникам', 'по средам', 'по четвергам', 'по пятницам', 'по субботам'] %}
 <header class="page-head">
   <div>
     <h1>{{ _('Входящие') }}</h1>
@@ -21,15 +20,14 @@
         <div class="inbox-head">
           <div>
             <h2>{{ _(r['org']) }}</h2>
-            <small class="num">{{ r['date'][8:10] }}.{{ r['date'][5:7] }}, {{ _('всего {kg} кг', kg=fmt_num(r['total'])) }}{% if r['note'] %}, «{{ _(r['note']) }}»{% endif %}</small>
+            <small class="num">{{ _('Отчёт за {m}', m=c.label) }}, {{ _('всего {kg} кг', kg=fmt_num(r['total'])) }}, {{ _('записей: {n}', n=r['n']) }}{% if r['note'] %}, «{{ _(r['note']) }}»{% endif %}</small>
           </div>
           <span class="pill st-{{ r['status'] }}">{{ _(STATUSES[r['status']]) }}</span>
         </div>
         <div class="inbox-items">
-          {% for i in c['items'] %}
-            <span class="chip {{ 'warn' if i.high }}" {% if i.high %}title="{{ _('Обычно около {n} {u}', n=fmt_num(i.norm), u=_(i.unit)) }}"{% endif %}>
-              {{ icon(i.name) }} {{ _(i.name) }}: <b class="num">{{ fmt_num(i.qty) }} {{ _(i.unit) }}</b>{% if i.high %} — {{ _('в {k} раза больше обычного', k=fmt_num(i.qty / i.norm)) }}{% endif %}{% if i.surplus %}, 🥐 {{ _('отдали {n}', n=fmt_num(i.surplus)) }}{% endif %}
-            </span>
+          {% for reason in c.reasons %}<span class="chip warn">⚠️ {{ reason }}</span>{% endfor %}
+          {% for i in c.summary[:6] %}
+            <span class="chip">{{ icon(i.name) }} {{ _(i.name) }}: <b class="num">{{ fmt_num(i.total) }} {{ _(i.unit) }}</b>{% if i.expected %} <span class="muted">({{ _('обычно {n}', n=fmt_num(i.expected)) }})</span>{% endif %}</span>
           {% endfor %}
         </div>
         <form method="post" action="{{ url_for('review', rid=r['id']) }}" class="js-review">
@@ -53,7 +51,7 @@
       <details class="more" style="margin-top:12px">
         <summary>{{ _('Возвращены на исправление') }} ({{ returned|length }})</summary>
         {% for c in returned %}
-          <div class="list-row"><span>{{ _(c.r['org']) }}, {{ c.r['date'][8:10] }}.{{ c.r['date'][5:7] }}</span>
+          <div class="list-row"><span>{{ _(c.r['org']) }}, {{ c.label }}</span>
             <span class="pill st-returned">{{ _('Ждём исправления') }}</span></div>
         {% endfor %}
       </details>
@@ -61,12 +59,19 @@
   </div>
 
   <aside class="panel">
-    <div class="panel-title"><h2>{{ _('Не сдали отчёт') }}</h2><small>{{ _('за 7 дней') }}</small></div>
-    {% for m in missing %}
-      <div class="list-row"><span>{{ _(m.org) }}</span><small class="num">{{ m.date[8:10] }}.{{ m.date[5:7] }}</small></div>
-    {% else %}
-      <p class="muted">{{ _('Все точки отчитались вовремя.') }}</p>
-    {% endfor %}
+    <div class="panel-title"><h2>{{ _('Сдача отчётов') }}</h2><small>{{ _('по месяцам') }}</small></div>
+    <div class="table-wrap"><table class="t">
+      <thead><tr><th></th>{% for m in periods.months %}<th class="r"><small>{{ m[5:7] }}.{{ m[2:4] }}</small></th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for row in periods.rows %}
+        <tr><td><small>{{ _(row.org) }}</small></td>
+          {% for c in row.cells %}<td class="r" title="{{ _(STATUSES.get(c.status, 'Нет отчёта')) }}">
+            {% if c.late %}<span class="pill st-returned">{{ _('не сдан') }}</span>
+            {% elif c.status == 'accepted' %}✅{% elif c.status in ('submitted', 'in_review') %}🕓{% elif c.status == 'draft' %}<small class="muted">{{ _('идёт') }}</small>{% else %}—{% endif %}</td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <p class="muted" style="font-size:.85rem; margin-top:8px">✅ {{ _('принят') }} · 🕓 {{ _('на проверке') }} · {{ _('текущий месяц ещё идёт') }}</p>
   </aside>
 </div>
 
@@ -77,13 +82,13 @@
       <article class="inbox-card">
         <div class="inbox-head">
           <div><h2>{{ _(r['org']) }}</h2>
-            <small class="num">{{ r['date'][8:10] }}.{{ r['date'][5:7] }}, {{ _('всего {kg} кг', kg=fmt_num(r['total'])) }}{% if r['note'] %}, «{{ _(r['note']) }}»{% endif %}</small></div>
+            <small class="num">{{ _('Отчёт за {m}', m=c.label) }}, {{ _('всего {kg} кг', kg=fmt_num(r['total'])) }}, {{ _('записей: {n}', n=r['n']) }}{% if r['note'] %}, «{{ _(r['note']) }}»{% endif %}</small></div>
           <span class="pill st-accepted">{{ _('Принято системой') }}</span>
         </div>
         <div class="inbox-items">
-          {% for i in c['items'] %}
-            <span class="chip">{{ icon(i.name) }} {{ _(i.name) }}: <b class="num">{{ fmt_num(i.qty) }} {{ _(i.unit) }}</b>{% if i.norm %} <span class="muted">({% if i.by_wd %}{{ _('обычно {wd} {n}', wd=_(WD[c.wd]), n=fmt_num(i.norm)) }}{% else %}{{ _('обычно {n}', n=fmt_num(i.norm)) }}{% endif %})</span>{% endif %}{% if i.surplus %}, 🥐 {{ fmt_num(i.surplus) }}{% endif %}</span>
-          {% else %}<span class="chip">{{ _('Отходов не было') }}</span>{% endfor %}
+          {% for i in c.summary[:6] %}
+            <span class="chip">{{ icon(i.name) }} {{ _(i.name) }}: <b class="num">{{ fmt_num(i.total) }} {{ _(i.unit) }}</b>{% if i.expected %} <span class="muted">({{ _('обычно {n}', n=fmt_num(i.expected)) }})</span>{% endif %}</span>
+          {% endfor %}
         </div>
         <form method="post" action="{{ url_for('review', rid=r['id']) }}" class="js-review">
           <div class="inbox-actions">
@@ -97,7 +102,7 @@
         </form>
       </article>
     {% else %}
-      <div class="panel empty"><div class="big">🤖</div>{{ _('За неделю система ничего не принимала сама.') }}</div>
+      <div class="panel empty"><div class="big">🤖</div>{{ _('За последние месяцы система ничего не принимала сама.') }}</div>
     {% endfor %}
   </div>
   <aside class="panel">
@@ -105,10 +110,11 @@
     <p class="muted" style="margin-bottom:10px">{{ _('Только если выполнено всё сразу:') }}</p>
     <div class="list-row"><span>{{ _('Вес не больше обычного в {k} раза', k=fmt_num(rules.high)) }}</span></div>
     <div class="list-row"><span>{{ _('Вес не меньше {p}% от обычного', p=(rules.low * 100)|int) }}</span></div>
+    <div class="list-row"><span>{{ _('Нет отдельной записи в 3 раза больше обычного взвешивания') }}</span></div>
     <div class="list-row"><span>{{ _('Не пропущены виды отходов, которые у точки бывают почти всегда') }}</span></div>
-    <div class="list-row"><span>{{ _('По каждому виду есть хотя бы 5 прошлых записей') }}</span></div>
+    <div class="list-row"><span>{{ _('Нет новых видов отходов без истории') }}</span></div>
     <div class="list-row"><span>{{ _('Нет комментария и это не исправление после возврата') }}</span></div>
-    <p class="muted" style="margin-top:12px; font-size:.92rem">{{ _('«Обычно» — средний вес у этой точки за 45 дней по принятым отчётам, без последней недели. Если по этому дню недели хватает данных, сравниваем с ним: по субботам у бариста больше молока, и это не ошибка.') }} {{ _('Ещё {p}% нормальных отчётов случайно уходят на проверку человеку.', p=rules.spot) }}</p>
+    <p class="muted" style="margin-top:12px; font-size:.92rem">{{ _('«Обычно» — средний вес за рабочий день у этой точки по принятым отчётам за 90 дней до месяца отчёта.') }} {{ _('Ещё {p}% нормальных отчётов случайно уходят на проверку человеку.', p=rules.spot) }}</p>
   </aside>
 </div>
 {% endblock %}

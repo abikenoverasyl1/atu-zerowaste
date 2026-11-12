@@ -16,10 +16,12 @@ import re
 import requests
 
 log = logging.getLogger("ai")
+last_error = ""   # последняя ошибка провайдера — показываем пользователю, чтобы было понятно, что чинить
 
 SYSTEM = (
     "Ты — аналитик системы учёта пищевых отходов Алматинского технологического университета (АТУ). "
-    "Точки: столовые, буфет, ресторанно-гостиничный комплекс ATU Inn, учебные и научные лаборатории. "
+    "Организации: столовый комплекс (ИП «Искандер»), учебно-гостиничный комплекс ATU INN, кофейня (ИП «Canella»), "
+    "кафедры ТПП и ТХиПП (учебные лаборатории). Отчёт сдаётся за месяц, каждая запись — взвешивание со способом утилизации. "
     "Отвечай по-русски, коротко и конкретно, простыми словами — тебя читают повара, лаборанты и руководство. "
     "Опирайся только на переданные данные, называй цифры с единицами (кг, ₸, %). "
     "Если данных не хватает — так и скажи. Стоимость в тенге — оценка по справочнику, не бухгалтерия. "
@@ -53,14 +55,29 @@ def name() -> str:
     return NAMES.get(p, "")
 
 
-def _post(url, headers, body):
+ERR_HINTS = {400: "неверный запрос или ключ", 401: "ключ не подходит", 403: "ключ не подходит или API не включён",
+             404: "модель не найдена — проверьте GEMINI_MODEL", 429: "превышен бесплатный лимит, подождите минуту",
+             500: "сбой у провайдера", 503: "провайдер перегружен, попробуйте позже"}
+
+
+def _post(url, headers, body, retry_body=None):
+    global last_error
     try:
-        r = requests.post(url, headers=headers, json=body, timeout=40)
+        r = requests.post(url, headers=headers, json=body, timeout=55)
+        if r.status_code == 400 and retry_body is not None:     # модель не поддерживает настройку — повтор без неё
+            r = requests.post(url, headers=headers, json=retry_body, timeout=55)
         if not r.ok:
             log.warning("ИИ %s: %s %s", url.split("/")[2], r.status_code, r.text[:300])
+            last_error = f"{r.status_code}: {ERR_HINTS.get(r.status_code, 'ошибка провайдера')}"
             return None
+        last_error = ""
         return r.json()
+    except requests.Timeout:
+        last_error = "ИИ не ответил вовремя"
+        log.warning("ИИ: таймаут")
+        return None
     except requests.RequestException as e:
+        last_error = "нет связи с провайдером ИИ"
         log.warning("ИИ недоступен: %s", e)
         return None
 
@@ -78,11 +95,14 @@ def _call(content, max_tokens=700, system=SYSTEM):
         gparts = [{"text": x["text"]} if x["type"] == "text" else
                   {"inline_data": {"mime_type": x["media_type"], "data": base64.b64encode(x["data"]).decode()}}
                   for x in parts]
+        body = {"systemInstruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": gparts}],
+                "generationConfig": {"maxOutputTokens": max_tokens * 3, "temperature": 0.3}}
+        # Без «размышлений» ответ приходит в разы быстрее; если модель так не умеет — повтор без настройки
+        fast = json.loads(json.dumps(body))
+        fast["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
         data = _post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                     {"x-goog-api-key": key, "content-type": "application/json"},
-                     {"systemInstruction": {"parts": [{"text": system}]},
-                      "contents": [{"role": "user", "parts": gparts}],
-                      "generationConfig": {"maxOutputTokens": max_tokens * 3, "temperature": 0.3}})
+                     {"x-goog-api-key": key, "content-type": "application/json"}, fast, retry_body=body)
         try:
             return "".join(pt.get("text", "") for pt in data["candidates"][0]["content"]["parts"]).strip() if data else None
         except (KeyError, IndexError, TypeError):

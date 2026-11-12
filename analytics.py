@@ -16,7 +16,7 @@ DISPOSAL_COST_PER_KG = DISPOSAL_COST_PER_M3 / WASTE_DENSITY_KG_M3   # ≈ 9,6 �
 
 WEEKDAYS = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
 WEEKDAYS_DAT = ["понедельникам", "вторникам", "средам", "четвергам", "пятницам", "субботам", "воскресеньям"]
-DEFECT_WORDS = ("брак", "тесто")
+DEFECT_WORDS = ("брак", "тесто", "образц")
 
 ASSUMPTIONS = [
     "CO₂: 0,627 кг CO₂e на 1 кг пищевых отходов на полигоне — UK DEFRA, 2022",
@@ -26,27 +26,35 @@ ASSUMPTIONS = [
 ]
 
 
-def fetch_items(db, date_from=None, date_to=None, org_id=None, waste_type_id=None, statuses=("accepted",)):
+def fetch_items(db, date_from=None, date_to=None, org_id=None, waste_type_id=None, statuses=None, method_id=None):
+    """Строки журнала (одно взвешивание = одна строка). statuses=None — все записи, включая текущий месяц."""
     sql = """
-        SELECT r.id AS report_id, r.date, r.status, o.id AS org_id, o.name AS org, o.type AS org_type,
-               w.id AS wt_id, w.name AS wt, w.unit, w.recyclable, w.price_per_unit, w.co2_factor,
-               i.qty, i.surplus_qty
+        SELECT i.id, r.id AS report_id, i.date, r.status, o.id AS org_id, o.name AS org, o.type AS org_type,
+               w.id AS wt_id, w.name AS wt, w.unit, w.recyclable, w.food, w.price_per_unit, w.co2_factor,
+               i.qty, i.surplus_qty, m.id AS method_id, m.name AS method, COALESCE(m.recycled, 0) AS recycled,
+               u.name AS user_name
         FROM report_items i
         JOIN reports r ON r.id = i.report_id
         JOIN organizations o ON o.id = r.org_id
         JOIN waste_types w ON w.id = i.waste_type_id
-        WHERE r.status IN ({})
-    """.format(",".join("?" * len(statuses)))
-    args = list(statuses)
+        LEFT JOIN disposal_methods m ON m.id = i.method_id
+        LEFT JOIN users u ON u.id = i.created_by
+        WHERE 1 = 1
+    """
+    args = []
+    if statuses:
+        sql += " AND r.status IN ({})".format(",".join("?" * len(statuses))); args += list(statuses)
     if date_from:
-        sql += " AND r.date >= ?"; args.append(str(date_from))
+        sql += " AND i.date >= ?"; args.append(str(date_from))
     if date_to:
-        sql += " AND r.date <= ?"; args.append(str(date_to))
+        sql += " AND i.date <= ?"; args.append(str(date_to))
     if org_id:
         sql += " AND o.id = ?"; args.append(int(org_id))
     if waste_type_id:
         sql += " AND w.id = ?"; args.append(int(waste_type_id))
-    sql += " ORDER BY r.date DESC, o.name, w.name"
+    if method_id:
+        sql += " AND m.id = ?"; args.append(int(method_id))
+    sql += " ORDER BY i.date DESC, o.name, w.name, i.id DESC"
     rows = [dict(r) for r in db.execute(sql, args).fetchall()]
     for r in rows:
         enrich(r)
@@ -57,16 +65,21 @@ def enrich(r):
     """Добавляет к строке массу отходов, деньги и CO2."""
     waste = max(r["qty"] - r["surplus_qty"], 0)
     r["waste"] = waste
-    r["money"] = waste * (r["price_per_unit"] + DISPOSAL_COST_PER_KG)
-    r["co2"] = waste * r["co2_factor"]
+    landfill = 0 if r.get("recycled") else waste      # переработанное не едет на полигон
+    r["landfill"] = landfill
+    r["money"] = waste * r["price_per_unit"] + landfill * DISPOSAL_COST_PER_KG
+    r["co2"] = landfill * r["co2_factor"]
     r["saved_money"] = r["surplus_qty"] * (r["price_per_unit"] + DISPOSAL_COST_PER_KG)
     r["saved_co2"] = r["surplus_qty"] * r["co2_factor"]
     return r
 
 
 def totals(rows):
-    t = dict(waste=0.0, money=0.0, co2=0.0, surplus=0.0, saved_money=0.0, saved_co2=0.0, recyclable=0.0)
+    t = dict(waste=0.0, money=0.0, co2=0.0, surplus=0.0, saved_money=0.0, saved_co2=0.0, recyclable=0.0,
+             recycled=0.0, n=len(rows))
     for r in rows:
+        if r.get("recycled"):
+            t["recycled"] += r["waste"]
         t["waste"] += r["waste"]
         t["money"] += r["money"]
         t["co2"] += r["co2"]
@@ -76,6 +89,7 @@ def totals(rows):
         if r["recyclable"]:
             t["recyclable"] += r["waste"]
     t["recyclable_share"] = (t["recyclable"] / t["waste"] * 100) if t["waste"] else 0
+    t["recycled_share"] = (t["recycled"] / t["waste"] * 100) if t["waste"] else 0
     return t
 
 
@@ -117,21 +131,48 @@ def period_bounds(kind: str, ref: date):
     return start, end
 
 
-def missing_reports(db, today: date, days_back=7):
-    """Какие точки не сдали отчёт за рабочий день (черновик тоже считается несданным)."""
-    orgs = db.execute("SELECT id, name, work_days FROM organizations WHERE work_days != ''").fetchall()
-    have = defaultdict(set)
-    for r in db.execute("SELECT org_id, date FROM reports WHERE status != 'draft' AND date >= ?",
-                        ((today - timedelta(days=days_back)).isoformat(),)):
-        have[r["org_id"]].add(r["date"])
+def monthly_series(rows, date_from, date_to, by="org"):
+    """Сумма отходов по месяцам с разбивкой (по организации или виду отхода)."""
+    months = []
+    d = date_from.replace(day=1)
+    while d <= date_to:
+        months.append(d.isoformat()[:7])
+        d = (d.replace(day=28) + timedelta(days=4)).replace(day=1)
+    idx = {m: i for i, m in enumerate(months)}
+    series = defaultdict(lambda: [0.0] * len(months))
+    for r in rows:
+        m = r["date"][:7]
+        if m in idx:
+            series[r[by]][idx[m]] += r["waste"]
+    return months, {k: [round(x, 1) for x in v] for k, v in series.items()}
+
+
+def period_status(db, today: date, months_back=3):
+    """Контроль сдачи (ФТ-5.5): по каждой активной организации — статус отчёта за последние месяцы.
+    Текущий месяц ещё идёт: черновик там — норма, несданными считаем только прошедшие месяцы."""
+    cur = today.replace(day=1)
+    months = [cur]
+    for _ in range(months_back):
+        months.insert(0, (months[0] - timedelta(days=1)).replace(day=1))
+    orgs = db.execute("SELECT id, name FROM organizations WHERE active = 1 ORDER BY id").fetchall()
+    rep = {(r["org_id"], r["date"]): r["status"] for r in
+           db.execute("SELECT org_id, date, status FROM reports WHERE date >= ?", (months[0].isoformat(),))}
     out = []
     for o in orgs:
-        for k in range(1, days_back + 1):
-            d = today - timedelta(days=k)
-            if str(d.isoweekday()) in o["work_days"] and d.isoformat() not in have[o["id"]]:
-                # Летом лаборатории закрыты — не считаем
-                out.append(dict(org=o["name"], org_id=o["id"], date=d.isoformat()))
-    return sorted(out, key=lambda x: x["date"], reverse=True)
+        cells = []
+        for m in months:
+            st = rep.get((o["id"], m.isoformat()))
+            late = m < cur and st in (None, "draft", "returned")
+            cells.append(dict(month=m.isoformat()[:7], status=st or "none", late=late))
+        out.append(dict(org=o["name"], org_id=o["id"], cells=cells))
+    return dict(months=[m.isoformat()[:7] for m in months], rows=out)
+
+
+def missing_reports(db, today: date):
+    """Кто не сдал отчёт за прошедшие месяцы (черновик и возвращённый — тоже не сдан)."""
+    ps = period_status(db, today)
+    return [dict(org=r["org"], org_id=r["org_id"], date=c["month"], status=c["status"])
+            for r in ps["rows"] for c in r["cells"] if c["late"]]
 
 
 def recommendations(db, today: date, tr=None):
@@ -210,7 +251,7 @@ def recommendations(db, today: date, tr=None):
     # 4. Доля брака в учебных лабораториях
     lab = defaultdict(lambda: [0.0, 0.0, 0.0])  # брак, всего, деньги брака
     for r in rows:
-        if r["org_type"] == "edu_lab":
+        if r["org_type"] in ("dept_lab", "sci_lab"):
             lab[r["org"]][1] += r["qty"]
             if any(w in r["wt"].lower() for w in DEFECT_WORDS):
                 lab[r["org"]][0] += r["qty"]
@@ -225,13 +266,13 @@ def recommendations(db, today: date, tr=None):
                 impact=money / 2 * 0.3))  # за 2 месяца → в месяц, сократить на 30%
 
     # 5. Перерабатываемые отходы уходят на полигон
-    rec_kg = sum(r["waste"] for r in rows if r["recyclable"]) / 2
+    rec_kg = sum(r["waste"] for r in rows if r["recyclable"] and not r["recycled"]) / 2
     if rec_kg > 0:
         recs.append(dict(
             kind="Переработка",
             title=tr("{kg} кг/мес можно не везти на полигон", kg=fmt_num(rec_kg, 0)),
-            text=tr("Очистки, кофейный жмых, сыворотку и остатки можно передавать на корм или компост "
-                 "(договор с фермерским хозяйством). Это снижает вывоз ТБО и выбросы метана."),
+            text=tr("Очистки, кофейный жмых, кости и остатки еды можно передавать на корм или компост, картон и ПЭТ — "
+                 "на вторсырьё. Это снижает вывоз ТБО и выбросы метана."),
             impact=rec_kg * DISPOSAL_COST_PER_KG))
 
     recs.sort(key=lambda x: -x["impact"])
@@ -310,6 +351,7 @@ def ai_context(db, today: date, days=90, tr=None):
         "по_дням_недели_кг": {WEEKDAYS[k]: round(v) for k, v in sorted(by_wd.items())},
         "рекомендации": [{"заголовок": r["title"], "совет": r["title"] + ". " + r["text"],
                           "экономия_тг_мес": round(r["impact"])} for r in recommendations(db, today, tr=tr)],
+        "фактически_переработано_проц": round(t["recycled_share"]),
         "не_сдали_отчёт": [f"{m['org']} ({m['date']})" for m in missing_reports(db, today)],
         "допущения": ASSUMPTIONS,
     }

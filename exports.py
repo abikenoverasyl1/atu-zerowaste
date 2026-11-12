@@ -65,16 +65,27 @@ def _autowidth(ws, max_width=45):
         ws.column_dimensions[get_column_letter(col)].width = min(max(w + 2, 8), max_width)
 
 
+JOURNAL_HEAD = ["Дата", "Наименование отходов", "Вес / объём", "Ед.", "Способ переработки / утилизации",
+                "Ответственное лицо"]
+
+
+def _ddmmyyyy(iso):
+    return f"{iso[8:10]}.{iso[5:7]}.{iso[:4]}"
+
+
 def registry_xlsx(rows):
+    """Реестр: первые колонки — как в действующих таблицах учёта АТУ, дальше — расчётные поля системы."""
     wb = Workbook()
     ws = wb.active
     ws.title = "Реестр"
-    ws.append(["Дата", "Организация", "Вид отхода", "Ед.", "Всего", "Отдано (излишек)", "В отходы",
-               "Потери, ₸", "CO₂, кг", "Перерабатываемый"])
+    ws.append(["Дата", "Организация", "Наименование отходов", "Вес / объём", "Ед.", "Способ переработки / утилизации",
+               "Ответственное лицо", "Отдано (излишек)", "Статус отчёта", "Потери, ₸", "CO₂, кг"])
     _style_header(ws)
+    from db import STATUSES
     for r in rows:
-        ws.append([r["date"], r["org"], r["wt"], r["unit"], r["qty"], r["surplus_qty"], round(r["waste"], 1),
-                   round(r["money"]), round(r["co2"], 1), "да" if r["recyclable"] else "нет"])
+        ws.append([_ddmmyyyy(r["date"]), r["org"], r["wt"], r["qty"], r["unit"], r["method"] or "",
+                   r["user_name"] or "", r["surplus_qty"], STATUSES.get(r["status"], r["status"]),
+                   round(r["money"]), round(r["co2"], 1)])
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
     _autowidth(ws)
@@ -134,12 +145,36 @@ def summary_xlsx(rows, title, period_label):
     ws2.freeze_panes = "B2"
     _autowidth(ws2, 22)
 
-    ws3 = wb.create_sheet("Реестр")
-    ws3.append(["Дата", "Организация", "Вид отхода", "Ед.", "В отходы", "Потери, ₸", "CO₂, кг"])
+    ws3 = wb.create_sheet("По способам утилизации")
+    ws3.append(["Способ переработки / утилизации", "Масса, кг/л", "Доля"])
     _style_header(ws3)
-    for r in rows:
-        ws3.append([r["date"], r["org"], r["wt"], r["unit"], round(r["waste"], 1), round(r["money"]), round(r["co2"], 1)])
-    _autowidth(ws3)
+    by_m = an.group_sum(rows, "method")
+    tot = sum(by_m.values()) or 1
+    for m, v in by_m.items():
+        ws3.append([m or "—", round(v, 1), f"{v / tot * 100:.1f}%"])
+    _autowidth(ws3, 50)
+
+    # Журнал по каждой организации — в той же структуре, что их бумажные/Excel-таблицы
+    for org in orgs:
+        name = "".join(ch for ch in org if ch not in '[]:*?/\\')[:28]
+        wj = wb.create_sheet(name)
+        wj.append([org])
+        wj["A1"].font = Font(bold=True, size=12)
+        wj.append(JOURNAL_HEAD)
+        _style_header(wj, 2)
+        org_rows = sorted((r for r in rows if r["org"] == org), key=lambda r: (r["date"], r["wt"]))
+        for r in org_rows:
+            wj.append([_ddmmyyyy(r["date"]), r["wt"], r["qty"], r["unit"], r["method"] or "", r["user_name"] or ""])
+        wj.append([])
+        wj.append(["Итого по наименованиям"])
+        wj.cell(wj.max_row, 1).font = Font(bold=True)
+        acc = defaultdict(float)
+        for r in org_rows:
+            acc[(r["wt"], r["unit"])] += r["qty"]
+        for (w, u), v in sorted(acc.items(), key=lambda kv: -kv[1]):
+            wj.append(["", w, round(v, 2), u])
+        wj.freeze_panes = "A3"
+        _autowidth(wj, 45)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -200,6 +235,17 @@ def summary_pdf(rows, title, period_label):
         ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
     ]))
     story += [Paragraph("<b>Структура отходов</b>", p), Spacer(1, 3), tbl2, Spacer(1, 10)]
+    by_m = an.group_sum(rows, "method")
+    tot = sum(by_m.values()) or 1
+    data3 = [["Способ переработки / утилизации", "Масса", "Доля"]] + [
+        [m or "—", an.fmt_num(v), f"{v / tot * 100:.1f}%"] for m, v in by_m.items()]
+    tbl3 = Table(data3, colWidths=[110 * mm, 35 * mm, 25 * mm])
+    tbl3.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), F), ("FONTNAME", (0, 0), (-1, 0), FB), ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E3EEE8")), ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+    ]))
+    story += [Paragraph(f"<b>Способы утилизации</b> (фактически переработано {t['recycled_share']:.0f}%)", p),
+              Spacer(1, 3), tbl3, Spacer(1, 10)]
     story += [Paragraph("Допущения: " + "; ".join(an.ASSUMPTIONS), small)]
     doc.build(story)
     return buf.getvalue()
