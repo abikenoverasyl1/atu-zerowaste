@@ -51,7 +51,7 @@
       <thead><tr><th>{{ _('Вид отхода') }}</th><th>{{ _('Цена сырья, ₸ за кг/л') }}</th><th>{{ _('Можно переработать') }}</th><th>{{ _('Бывает съедобным излишком') }}</th><th>{{ _('Способ по умолчанию') }}</th><th>{{ _('Активен') }}</th></tr></thead>
       <tbody>
       {% for w in wts %}
-        <tr><td>{{ icon(w['name']) }} {{ _(w['name']) }} <small>({{ _(w['unit']) }})</small></td>
+        <tr><td>{{ icon(w['name']) }} {{ _(w['name']) }} <small>({{ _(w['unit']) }})</small><br><small class="muted">{{ _(w['category'] or '') }} · {{ _('полигон') }} {{ fmt_num(w['co2_factor'] * 1000, 2) }} {{ _('кг CO₂/т') }}{% if w['rec_name'] %} · {{ _('рекомендуется') }}: {{ _(w['rec_name']) }}{% endif %}</small></td>
           <td><input class="input" style="max-width:120px; min-height:40px" name="price_{{ w['id'] }}" value="{{ w['price_per_unit']|int }}" type="number" step="1"></td>
           <td><input type="checkbox" name="rec_{{ w['id'] }}" {{ 'checked' if w['recyclable'] }} style="width:20px;height:20px"></td>
           <td><input type="checkbox" name="ed_{{ w['id'] }}" {{ 'checked' if w['edible'] }} style="width:20px;height:20px"></td>
@@ -68,8 +68,10 @@
 <div id="t-m" class="tab" hidden>
   <section class="panel" style="padding:8px 10px">
     <div class="table-wrap"><table class="t">
-      <thead><tr><th>{{ _('Способ переработки / утилизации') }}</th><th>{{ _('Идёт в переработку') }}</th><th class="r">{{ _('Записей') }}</th></tr></thead>
-      <tbody>{% for m in methods %}<tr><td>{{ _(m['name']) }}</td><td>{{ '♻️ ' ~ _('да') if m['recycled'] else _('нет, полигон') }}</td><td class="r num">{{ m['used'] }}</td></tr>{% endfor %}</tbody>
+      <thead><tr><th>{{ _('Способ переработки / утилизации') }}</th><th>{{ _('Идёт в переработку') }}</th><th class="r">{{ _('CO₂, кг/т') }}</th><th class="r">{{ _('Иерархия (1 — лучше)') }}</th><th class="r">{{ _('Записей') }}</th></tr></thead>
+      <tbody>{% for m in methods %}<tr><td>{{ _(m['name']) }}</td><td>{{ '♻️ ' ~ _('да') if m['recycled'] else _('нет, полигон') }}</td>
+        <td class="r num">{% if m['landfill'] %}{{ _('по виду отхода') }}{% elif m['co2_factor'] is not none %}{{ fmt_num(m['co2_factor'] * 1000, 2) }}{% else %}{{ _('нет данных DEFRA') }}{% endif %}</td>
+        <td class="r num">{{ m['rank'] }}</td><td class="r num">{{ m['used'] }}</td></tr>{% endfor %}</tbody>
     </table></div>
   </section>
   <details class="more"><summary>{{ _('Добавить способ') }}</summary>
@@ -77,6 +79,7 @@
       <input type="hidden" name="what" value="method">
       <label class="field"><span>{{ _('Название') }}</span><input class="input" name="name" required placeholder="{{ _('Например: Передача на биогазовую установку') }}"></label>
       <label class="chip" style="display:inline-block; margin-bottom:12px"><input type="checkbox" name="recycled"> {{ _('Отходы идут в переработку, а не на полигон') }}</label><br>
+      <label class="field"><span>{{ _('CO₂, кг CO₂-экв на тонну (если известно)') }}</span><input class="input" name="co2" type="number" step="0.01" min="0"></label>
       <button class="btn btn-primary">{{ _('Добавить способ') }}</button>
     </form>
   </details>

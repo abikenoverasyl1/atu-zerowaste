@@ -21,7 +21,9 @@
     <div class="facts" style="margin:0 0 18px">
       <div class="fact"><div class="v num">{{ fmt_mass(t.waste) }}</div><div class="l">{{ _('отходов') }}</div></div>
       <div class="fact"><div class="v num">{{ fmt_big(t.money) }}</div><div class="l">{{ _('потерь') }}</div></div>
-      <div class="fact"><div class="v num">{{ fmt_mass(t.co2) }}</div><div class="l">CO₂</div></div>
+      <div class="fact"><div class="v num">{{ fmt_mass(t.co2) }}</div><div class="l">{{ _('CO₂-экв выбросов') }}</div></div>
+      <div class="fact"><div class="v num">{{ fmt_mass(t.co2_avoided) }}</div><div class="l">{{ _('CO₂ уже сэкономлено') }}</div></div>
+      <div class="fact"><div class="v num">{{ fmt_mass(t.co2_potential) }}</div><div class="l">{{ _('CO₂ можно сэкономить') }}</div></div>
       <div class="fact gift"><div class="v num">{{ fmt_mass(t.surplus) }}</div><div class="l">{{ _('отдали студентам') }}</div></div>
     </div>
     <div class="table-wrap"><table class="t">
@@ -30,7 +32,7 @@
       {% for org, o in by_org %}
         <tr><td>{{ _(org) }}</td><td class="r">{{ fmt_num(o.waste) }}</td><td class="r">{{ fmt_money(o.money) }}</td><td class="r">{{ fmt_num(o.co2) }}</td></tr>
       {% else %}<tr><td colspan="4"><div class="empty">{{ _('За этот период принятых отчётов нет.') }}</div></td></tr>{% endfor %}
-      {% if by_org %}<tr class="total"><td>{{ _('Итого') }}</td><td class="r">{{ fmt_num(t.waste) }}</td><td class="r">{{ fmt_money(t.money) }}</td><td class="r">{{ fmt_num(t.co2) }}</td></tr>{% endif %}
+      {% if by_org %}<tr class="total" style="white-space:nowrap"><td>{{ _('Итого') }}</td><td class="r">{{ fmt_num(t.waste) }}</td><td class="r">{{ fmt_money(t.money) }}</td><td class="r">{{ fmt_num(t.co2) }}</td></tr>{% endif %}
       </tbody>
     </table></div>
   </section>
@@ -40,7 +42,7 @@
       <h2 style="margin-bottom:12px">{{ _('Скачать') }}</h2>
       <a class="btn btn-primary btn-lg btn-block" href="{{ url_for('report', period=kind, ref=ref, export='xlsx') }}">Excel</a>
       <a class="btn btn-lg btn-block" style="margin-top:10px" href="{{ url_for('report', period=kind, ref=ref, export='pdf') }}">PDF</a>
-      <p class="muted" style="margin-top:12px; font-size:.92rem">{{ _('В Excel три листа: итоги, разбивка по видам отходов и полный реестр.') }}</p>
+      <p class="muted" style="margin-top:12px; font-size:.92rem">{{ _('В Excel: итоги, разбивка по видам отходов, способы утилизации, CO₂ по видам отходов и журнал каждой организации в структуре действующих таблиц.') }}</p>
     </section>
     <section class="panel">
       <h2 style="margin-bottom:6px">{{ _('Состав отходов') }}</h2>

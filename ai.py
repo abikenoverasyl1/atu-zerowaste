@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import time
 
 import requests
 
@@ -63,9 +64,9 @@ ERR_HINTS = {400: "неверный запрос или ключ", 401: "клю�
 def _post(url, headers, body, retry_body=None):
     global last_error
     try:
-        r = requests.post(url, headers=headers, json=body, timeout=55)
+        r = requests.post(url, headers=headers, json=body, timeout=30)
         if r.status_code == 400 and retry_body is not None:     # модель не поддерживает настройку — повтор без неё
-            r = requests.post(url, headers=headers, json=retry_body, timeout=55)
+            r = requests.post(url, headers=headers, json=retry_body, timeout=30)
         if not r.ok:
             log.warning("ИИ %s: %s %s", url.split("/")[2], r.status_code, r.text[:300])
             last_error = f"{r.status_code}: {ERR_HINTS.get(r.status_code, 'ошибка провайдера')}"
@@ -82,6 +83,21 @@ def _post(url, headers, body, retry_body=None):
         return None
 
 
+def _groq(parts, max_tokens, system):
+    if any(x["type"] == "image" for x in parts):
+        return None
+    model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+    data = _post("https://api.groq.com/openai/v1/chat/completions",
+                 {"authorization": f"Bearer {os.environ['GROQ_API_KEY']}", "content-type": "application/json"},
+                 {"model": model, "max_tokens": max_tokens, "temperature": 0.3,
+                  "messages": [{"role": "system", "content": system},
+                               {"role": "user", "content": "\n\n".join(x["text"] for x in parts)}]})
+    try:
+        return data["choices"][0]["message"]["content"].strip() if data else None
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
 def _call(content, max_tokens=700, system=SYSTEM):
     """content — строка или список частей: {"type": "text", "text": ...} / {"type": "image", "media_type", "data"(bytes)}."""
     parts = [{"type": "text", "text": content}] if isinstance(content, str) else content
@@ -91,7 +107,10 @@ def _call(content, max_tokens=700, system=SYSTEM):
     key = os.environ[KEYS[p]]
 
     if p == "gemini":
-        model = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
+        # Основная модель перегружена (503) или упёрлась в лимит (429) — пробуем запасные модели по очереди
+        models = [os.environ.get("GEMINI_MODEL", "gemini-flash-latest")] + [
+            m.strip() for m in os.environ.get("GEMINI_FALLBACKS", "gemini-flash-lite-latest,gemini-2.5-flash").split(",")
+            if m.strip()]
         gparts = [{"text": x["text"]} if x["type"] == "text" else
                   {"inline_data": {"mime_type": x["media_type"], "data": base64.b64encode(x["data"]).decode()}}
                   for x in parts]
@@ -101,27 +120,27 @@ def _call(content, max_tokens=700, system=SYSTEM):
         # Без «размышлений» ответ приходит в разы быстрее; если модель так не умеет — повтор без настройки
         fast = json.loads(json.dumps(body))
         fast["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
-        data = _post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                     {"x-goog-api-key": key, "content-type": "application/json"}, fast, retry_body=body)
-        try:
-            return "".join(pt.get("text", "") for pt in data["candidates"][0]["content"]["parts"]).strip() if data else None
-        except (KeyError, IndexError, TypeError):
-            log.warning("Gemini: неожиданный ответ %s", str(data)[:300])
-            return None
+        for attempt, model in enumerate(dict.fromkeys(models)):
+            if attempt:
+                time.sleep(1.5)
+            data = _post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                         {"x-goog-api-key": key, "content-type": "application/json"}, fast, retry_body=body)
+            try:
+                text = "".join(pt.get("text", "") for pt in data["candidates"][0]["content"]["parts"]).strip() if data else None
+            except (KeyError, IndexError, TypeError):
+                log.warning("Gemini: неожиданный ответ %s", str(data)[:300])
+                text = None
+            if text:
+                return text
+            if last_error[:3] in ("401", "403"):     # ключ не подходит — другие модели не помогут
+                break
+        # Gemini так и не ответил: если задан ключ Groq, текстовые запросы уходят туда
+        if os.environ.get("GROQ_API_KEY") and not any(x["type"] == "image" for x in parts):
+            return _groq(parts, max_tokens, system)
+        return None
 
     if p == "groq":
-        if any(x["type"] == "image" for x in parts):
-            return None
-        model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
-        data = _post("https://api.groq.com/openai/v1/chat/completions",
-                     {"authorization": f"Bearer {key}", "content-type": "application/json"},
-                     {"model": model, "max_tokens": max_tokens, "temperature": 0.3,
-                      "messages": [{"role": "system", "content": system},
-                                   {"role": "user", "content": "\n\n".join(x["text"] for x in parts)}]})
-        try:
-            return data["choices"][0]["message"]["content"].strip() if data else None
-        except (KeyError, IndexError, TypeError):
-            return None
+        return _groq(parts, max_tokens, system)
 
     # claude
     model = os.environ.get("AI_MODEL", "claude-haiku-5-5")

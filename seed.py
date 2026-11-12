@@ -2,8 +2,8 @@
 отчёт = месяц, запись = одно взвешивание (дата, наименование, вес/объём, способ утилизации, ответственный).
 
 Объёмы — ОЦЕНКИ для демонстрации, не реальные данные АТУ.
-CO2: 0,627 кг CO2e на кг пищевых отходов на полигоне (UK DEFRA 2022); для упаковки, стекла, пластика,
-металла и масла CO2 при захоронении в MVP не считается (коэффициент 0).
+CO2: коэффициенты UK DEFRA / BEIS 2024 (Waste disposal) по справочнику команды «Виды отходов и CO₂»:
+полигон — пищевые 700,21, картон 1 164,39, стекло 8,88 кг CO2e/т; компост и биогаз — 8,88; переработка — 6,41.
 
 Запуск:  python seed.py          (пересоздаёт zerowaste.db)
 """
@@ -22,14 +22,31 @@ DEMO_PASSWORD = "demo"
 
 # ---------- Способы переработки / утилизации ----------
 # (ключ, название, отходы реально идут в переработку)
+# (ключ, название, идёт в переработку, полигон, кг CO2e на кг или None, иерархия 1–5)
 METHODS = [
-    ("tbo", "Вывоз ТБО", 0),
-    ("bak", "Вывоз ТБО (мусорный бак)", 0),
-    ("recycle", "Передача на переработку (вторсырьё)", 1),
-    ("compost", "Компостирование", 1),
-    ("feed", "На корм животным", 1),
-    ("oil", "Сдача отработанного масла переработчику", 1),
+    ("tbo", "Вывоз ТБО", 0, 1, None, 5),
+    ("bak", "Вывоз ТБО (мусорный бак)", 0, 1, None, 5),
+    ("recycle", "Передача на переработку (вторсырьё)", 1, 0, 0.00641, 3),
+    ("compost", "Компостирование", 1, 0, 0.00888, 4),
+    ("feed", "На корм животным", 1, 0, None, 2),          # у DEFRA нет коэффициента — в CO2 не считаем
+    ("oil", "Сдача отработанного масла переработчику", 1, 0, 0.00641, 3),
+    ("ad", "Анаэробное сбраживание (биогаз)", 1, 0, 0.00888, 4),
+    ("donate", "Передача нереализованной продукции (фудшеринг)", 1, 0, 0.0, 1),
 ]
+
+# Справочник команды «Виды отходов и CO₂»: категория, коэффициент полигона (кг CO2e/кг), рекомендуемый способ
+CO2_REF = {
+    "hall": ("Органические", 0.70021, "compost"), "unsold": ("Органические", 0.70021, "donate"),
+    "food_left": ("Органические", 0.70021, "compost"), "peel": ("Органические", 0.70021, "compost"),
+    "fruitveg": ("Органические", 0.70021, "compost"), "meat_trim": ("Органические", 0.70021, "ad"),
+    "meat_bones": ("Органические", 0.70021, "ad"), "fish_bones": ("Органические", 0.70021, "ad"),
+    "egg": ("Органические", 0.70021, "compost"), "coffee": ("Органические", 0.70021, "compost"),
+    "bakery": ("Органические", 0.70021, "compost"), "confect": ("Органические", 0.70021, "compost"),
+    "sucrose": ("Органические", 0.70021, "ad"), "oil": ("Специальные", 0.70021, "oil"),
+    "carton": ("Вторсырьё", 1.16439, "recycle"), "pet": ("Вторсырьё", 0.00888, "recycle"),
+    "glass": ("Вторсырьё", 0.00888, "recycle"), "alu": ("Вторсырьё", 0.00888, "recycle"),
+    "pack": ("Смешанные", 1.16439, "recycle"),
+}
 
 # ---------- Виды отходов по образцам таблиц АТУ ----------
 # (ключ, название, ед., пригоден к переработке, съедобный излишок, пищевой, ₸ за ед. сырья — оценка, способ по умолчанию)
@@ -140,15 +157,18 @@ def run(path=None):
     cur = conn.cursor()
 
     mt_ids = {}
-    for key, name, rec in METHODS:
-        mt_ids[key] = cur.execute("INSERT INTO disposal_methods (name, recycled) VALUES (?,?)", (name, rec)).lastrowid
+    for key, name, rec, landfill, co2, rank in METHODS:
+        mt_ids[key] = cur.execute("INSERT INTO disposal_methods (name, recycled, landfill, co2_factor, rank, code) "
+                                  "VALUES (?,?,?,?,?,?)", (name, rec, landfill, co2, rank, key)).lastrowid
 
     wt_ids, wt_food = {}, {}
     for key, name, unit, rec, edible, food, price, method in WASTE_TYPES:
+        cat, co2, rec_m = CO2_REF[key]
         wt_ids[key] = cur.execute(
-            "INSERT INTO waste_types (name, unit, recyclable, edible, food, price_per_unit, co2_factor, default_method_id) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (name, unit, rec, edible, food, price, 0.627 if food else 0.0, mt_ids[method])).lastrowid
+            "INSERT INTO waste_types (name, unit, recyclable, edible, food, price_per_unit, co2_factor, default_method_id, "
+            "category, kg_per_unit, rec_method_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (name, unit, rec, edible, food, price, co2, mt_ids[method], cat, 0.92 if key == "oil" else 1.0,
+             mt_ids[rec_m])).lastrowid
         wt_food[key] = (method, unit)
 
     pw = generate_password_hash(DEMO_PASSWORD)

@@ -130,6 +130,8 @@ def summary_xlsx(rows, title, period_label):
     ws.append([f"Доля пригодных к переработке: {t['recyclable_share']:.0f}%"])
     ws.append([f"Сэкономлено за счёт раздачи излишков: {an.fmt_money(t['saved_money'])}, "
                f"{t['saved_co2']:.0f} кг CO₂"])
+    ws.append([f"CO₂-экв: выбросы {t['co2']:.0f} кг; уже сэкономлено выбранными способами {t['co2_avoided']:.0f} кг; "
+               f"можно сэкономить, перейдя на рекомендуемые способы, ещё {t['co2_potential']:.0f} кг (DEFRA 2024)"])
     ws.append([])
     ws.append(["Допущения расчёта:"])
     for a in an.ASSUMPTIONS:
@@ -153,6 +155,23 @@ def summary_xlsx(rows, title, period_label):
     for m, v in by_m.items():
         ws3.append([m or "—", round(v, 1), f"{v / tot * 100:.1f}%"])
     _autowidth(ws3, 50)
+
+    wc = wb.create_sheet("CO₂ по видам отходов")
+    wc.append(["Вид отхода", "Масса, кг/л", "Способы сейчас", "CO₂ сейчас, кг", "Рекомендуемый способ",
+               "Можно сэкономить, кг CO₂", "Коэфф. полигона, кг CO₂/т"])
+    _style_header(wc)
+    agg = defaultdict(lambda: dict(w=0.0, co2=0.0, pot=0.0, methods=set(), rec=None, f=0))
+    for r in rows:
+        a = agg[r["wt"]]
+        a["w"] += r["waste"]; a["co2"] += r["co2"]; a["pot"] += r["co2_potential"]
+        a["methods"].add(r["method"] or "—"); a["rec"] = r["rec_method"]; a["f"] = r["co2_factor"]
+    for wt, a in sorted(agg.items(), key=lambda kv: -kv[1]["pot"]):
+        wc.append([wt, round(a["w"], 1), "; ".join(sorted(a["methods"])), round(a["co2"], 1), a["rec"] or "—",
+                   round(a["pot"], 1), round(a["f"] * 1000, 2)])
+    wc.append([])
+    wc.append(["Источник: UK DEFRA / BEIS, Greenhouse gas reporting: conversion factors 2024, Waste disposal. "
+               "Экономия = масса × (коэфф. полигона − коэфф. способа)."])
+    _autowidth(wc, 45)
 
     # Журнал по каждой организации — в той же структуре, что их бумажные/Excel-таблицы
     for org in orgs:
@@ -244,6 +263,9 @@ def summary_pdf(rows, title, period_label):
         ("FONTNAME", (0, 0), (-1, -1), F), ("FONTNAME", (0, 0), (-1, 0), FB), ("FONTSIZE", (0, 0), (-1, -1), 8.5),
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E3EEE8")), ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
     ]))
+    story += [Paragraph(f"<b>CO₂-экв:</b> выбросы {an.fmt_num(t['co2'], 0)} кг; уже сэкономлено {an.fmt_num(t['co2_avoided'], 0)} кг; "
+                        f"можно сэкономить рекомендуемыми способами ещё {an.fmt_num(t['co2_potential'], 0)} кг "
+                        f"(DEFRA 2024).", p), Spacer(1, 6)]
     story += [Paragraph(f"<b>Способы утилизации</b> (фактически переработано {t['recycled_share']:.0f}%)", p),
               Spacer(1, 3), tbl3, Spacer(1, 10)]
     story += [Paragraph("Допущения: " + "; ".join(an.ASSUMPTIONS), small)]

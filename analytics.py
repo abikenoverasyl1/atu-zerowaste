@@ -1,7 +1,8 @@
 """Аналитика: деньги, CO2, графики, рекомендации, контроль сдачи отчётов.
 
 Допущения (выводятся в интерфейсе, чтобы жюри видело источник каждой цифры):
-- CO2: 0,627 кг CO2e на 1 кг пищевых отходов на полигоне (UK DEFRA conversion factors 2022).
+- CO2: UK DEFRA / BEIS 2024, Waste disposal. CO2 записи = масса × коэффициент способа утилизации;
+  для вывоза ТБО — коэффициент полигона для вида отхода (пищевые 700,21, картон 1 164,39, стекло 8,88 кг/т).
 - Вывоз ТБО в Алматы: 3 832,5 ₸ за м³ (тариф с 28.06.2026, решение маслихата № 308).
 - Плотность пищевых отходов в контейнере: ~400 кг/м³ (допущение).
 - Стоимость сырья по видам отходов — оценка команды, правится в справочнике.
@@ -19,10 +20,12 @@ WEEKDAYS_DAT = ["понедельникам", "вторникам", "среда�
 DEFECT_WORDS = ("брак", "тесто", "образц")
 
 ASSUMPTIONS = [
-    "CO₂: 0,627 кг CO₂e на 1 кг пищевых отходов на полигоне — UK DEFRA, 2022",
+    "CO₂: коэффициенты UK DEFRA / BEIS 2024 (Waste disposal). Полигон: пищевые 700,21, картон 1 164,39, стекло 8,88 кг CO₂-экв/т; компост и биогаз — 8,88; переработка — 6,41",
+    "Экономия CO₂ = масса × (коэффициент полигона − коэффициент выбранного способа). Корм животным — коэффициента DEFRA нет, считаем 0",
+    "Допущения: ПЭТ и алюминий — как стекло, масло — как пищевые отходы (1 л ≈ 0,92 кг), смешанная упаковка — как картон. Британские коэффициенты для Казахстана ориентировочные",
     "Вывоз ТБО: 3 832,5 ₸/м³ — тариф Алматы с 28.06.2026; плотность отходов ~400 кг/м³ (допущение)",
     "Стоимость сырья по видам отходов — оценка команды, редактируется в справочнике",
-    "1 л жидких отходов ≈ 1 кг",
+    "Остальные жидкие отходы: 1 л ≈ 1 кг",
 ]
 
 
@@ -31,13 +34,15 @@ def fetch_items(db, date_from=None, date_to=None, org_id=None, waste_type_id=Non
     sql = """
         SELECT i.id, r.id AS report_id, i.date, r.status, o.id AS org_id, o.name AS org, o.type AS org_type,
                w.id AS wt_id, w.name AS wt, w.unit, w.recyclable, w.food, w.price_per_unit, w.co2_factor,
-               i.qty, i.surplus_qty, m.id AS method_id, m.name AS method, COALESCE(m.recycled, 0) AS recycled,
-               u.name AS user_name
+               w.kg_per_unit, w.category, i.qty, i.surplus_qty, m.id AS method_id, m.name AS method,
+               COALESCE(m.recycled, 0) AS recycled, COALESCE(m.landfill, 1) AS m_landfill, m.co2_factor AS m_co2,
+               rm.name AS rec_method, rm.landfill AS rm_landfill, rm.co2_factor AS rm_co2, u.name AS user_name
         FROM report_items i
         JOIN reports r ON r.id = i.report_id
         JOIN organizations o ON o.id = r.org_id
         JOIN waste_types w ON w.id = i.waste_type_id
         LEFT JOIN disposal_methods m ON m.id = i.method_id
+        LEFT JOIN disposal_methods rm ON rm.id = w.rec_method_id
         LEFT JOIN users u ON u.id = i.created_by
         WHERE 1 = 1
     """
@@ -68,16 +73,27 @@ def enrich(r):
     landfill = 0 if r.get("recycled") else waste      # переработанное не едет на полигон
     r["landfill"] = landfill
     r["money"] = waste * r["price_per_unit"] + landfill * DISPOSAL_COST_PER_KG
-    r["co2"] = landfill * r["co2_factor"]
+    kg = waste * (r.get("kg_per_unit") or 1)
+    base = r["co2_factor"]                              # кг CO2e/кг, если бы везли на полигон
+    method_f = base if r.get("m_landfill", 1) else (r.get("m_co2") or 0)
+    r["co2"] = kg * method_f                            # фактический CO2 выбранного способа
+    r["co2_avoided"] = kg * (base - method_f)           # уже сэкономлено за счёт способа (ФТ: экология)
+    if r.get("rec_method") is not None and r.get("m_landfill", 1):
+        rec_f = base if r.get("rm_landfill") else (r.get("rm_co2") or 0)
+        r["co2_potential"] = kg * max(base - rec_f, 0)  # можно сэкономить, перейдя на рекомендуемый способ
+    else:
+        r["co2_potential"] = 0.0
     r["saved_money"] = r["surplus_qty"] * (r["price_per_unit"] + DISPOSAL_COST_PER_KG)
-    r["saved_co2"] = r["surplus_qty"] * r["co2_factor"]
+    r["saved_co2"] = r["surplus_qty"] * (r.get("kg_per_unit") or 1) * r["co2_factor"]
     return r
 
 
 def totals(rows):
     t = dict(waste=0.0, money=0.0, co2=0.0, surplus=0.0, saved_money=0.0, saved_co2=0.0, recyclable=0.0,
-             recycled=0.0, n=len(rows))
+             recycled=0.0, n=len(rows), co2_avoided=0.0, co2_potential=0.0)
     for r in rows:
+        t["co2_avoided"] += r["co2_avoided"]
+        t["co2_potential"] += r["co2_potential"]
         if r.get("recycled"):
             t["recycled"] += r["waste"]
         t["waste"] += r["waste"]
@@ -265,15 +281,21 @@ def recommendations(db, today: date, tr=None):
                      "проверьте рецептуры и навески; съедобную продукцию отдавайте через «Излишки»."),
                 impact=money / 2 * 0.3))  # за 2 месяца → в месяц, сократить на 30%
 
-    # 5. Перерабатываемые отходы уходят на полигон
-    rec_kg = sum(r["waste"] for r in rows if r["recyclable"] and not r["recycled"]) / 2
-    if rec_kg > 0:
+    # 5. Сменить способ утилизации на рекомендуемый (справочник CO2): больше всего CO2 по виду отхода
+    pot = defaultdict(lambda: [0.0, 0.0, None])   # кг/мес на полигон, кг CO2/мес, рекомендуемый способ
+    for r in rows:
+        if r["co2_potential"] > 0:
+            p = pot[r["wt"]]
+            p[0] += r["waste"] / 2; p[1] += r["co2_potential"] / 2; p[2] = r["rec_method"]
+    for wt, (kg, co2, method) in sorted(pot.items(), key=lambda kv: -kv[1][1])[:3]:
+        if co2 < 20:
+            continue
         recs.append(dict(
             kind="Переработка",
-            title=tr("{kg} кг/мес можно не везти на полигон", kg=fmt_num(rec_kg, 0)),
-            text=tr("Очистки, кофейный жмых, кости и остатки еды можно передавать на корм или компост, картон и ПЭТ — "
-                 "на вторсырьё. Это снижает вывоз ТБО и выбросы метана."),
-            impact=rec_kg * DISPOSAL_COST_PER_KG))
+            title=tr("{wt}: «{m}» вместо ТБО", wt=tr(wt), m=tr(method)),
+            text=tr("{kg} кг/мес сейчас уходит на полигон. Смена способа сократит выбросы на {co2} кг CO₂-экв в месяц "
+                    "(DEFRA 2024) и снизит вывоз ТБО.", kg=fmt_num(kg, 0), co2=fmt_num(co2, 0)),
+            impact=kg * DISPOSAL_COST_PER_KG, co2=co2))
 
     recs.sort(key=lambda x: -x["impact"])
     # не больше двух рекомендаций одного вида, всего 6
@@ -339,6 +361,8 @@ def ai_context(db, today: date, days=90, tr=None):
         "дней": days,
         "период": f"последние {days} дней ({d_from:%d.%m.%Y}–{today:%d.%m.%Y}), только принятые отчёты",
         "итого": {"отходы_кг": round(t["waste"]), "потери_тг": round(t["money"]), "co2_кг": round(t["co2"]),
+                  "co2_уже_сэкономлено_кг": round(t["co2_avoided"]),
+                  "co2_можно_сэкономить_рекомендуемыми_способами_кг": round(t["co2_potential"]),
                   "доля_перерабатываемых_проц": round(t["recyclable_share"]),
                   "отдано_студентам_кг": round(t["surplus"], 1)},
         "по_точкам": [{"точка": k, "кг": round(v[0], 1), "потери_тг": round(v[1])}

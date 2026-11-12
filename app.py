@@ -806,8 +806,10 @@ def admin():
                 name = request.form.get("name", "").strip()
                 if not name:
                     raise ValueError(_("Введите название способа"))
-                conn.execute("INSERT INTO disposal_methods (name, recycled) VALUES (?,?)",
-                             (name, int("recycled" in request.form)))
+                rec = int("recycled" in request.form)
+                co2 = request.form.get("co2", "").replace(",", ".").strip()
+                conn.execute("INSERT INTO disposal_methods (name, recycled, landfill, co2_factor, rank) VALUES (?,?,?,?,?)",
+                             (name, rec, 1 - rec, float(co2) / 1000 if co2 else None, 3 if rec else 5))
                 flash(_("Способ утилизации добавлен"), "success")
             elif what == "user":
                 conn.execute("INSERT INTO users (name, login, email, password_hash, role, org_id) VALUES (?,?,?,?,?,?)",
@@ -836,10 +838,11 @@ def admin():
                            FROM organizations o ORDER BY o.id""").fetchall()
     users = conn.execute("""SELECT u.*, o.name AS org FROM users u LEFT JOIN organizations o ON o.id = u.org_id
                             ORDER BY u.role, u.name""").fetchall()
-    wts = conn.execute("""SELECT w.*, (SELECT COUNT(*) FROM report_items i WHERE i.waste_type_id = w.id) AS used
+    wts = conn.execute("""SELECT w.*, (SELECT COUNT(*) FROM report_items i WHERE i.waste_type_id = w.id) AS used,
+                          (SELECT name FROM disposal_methods m WHERE m.id = w.rec_method_id) AS rec_name
                           FROM waste_types w ORDER BY w.active DESC, w.name""").fetchall()
     methods = conn.execute("""SELECT m.*, (SELECT COUNT(*) FROM report_items i WHERE i.method_id = m.id) AS used
-                              FROM disposal_methods m ORDER BY m.id""").fetchall()
+                              FROM disposal_methods m ORDER BY m.rank, m.id""").fetchall()
     return render_template("admin.html", orgs=orgs, users=users, wts=wts, methods=methods)
 
 

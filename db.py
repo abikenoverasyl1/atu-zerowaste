@@ -60,7 +60,11 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS disposal_methods (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
-    recycled INTEGER NOT NULL DEFAULT 0     -- 1 = отходы реально идут в переработку, а не на полигон
+    recycled INTEGER NOT NULL DEFAULT 0,    -- 1 = отходы реально идут в переработку, а не на полигон
+    landfill INTEGER NOT NULL DEFAULT 0,    -- 1 = полигон: CO2 считается по коэффициенту вида отхода
+    co2_factor REAL,                        -- кг CO2e на кг для способа (DEFRA 2024); NULL — коэффициента нет
+    rank INTEGER NOT NULL DEFAULT 5,        -- иерархия обращения с отходами: 1 — лучше, 5 — полигон
+    code TEXT
 );
 
 CREATE TABLE IF NOT EXISTS waste_types (
@@ -71,7 +75,11 @@ CREATE TABLE IF NOT EXISTS waste_types (
     edible INTEGER NOT NULL DEFAULT 0,       -- может быть съедобным излишком
     food INTEGER NOT NULL DEFAULT 1,         -- пищевой / органический (для CO2 при захоронении)
     price_per_unit REAL NOT NULL DEFAULT 0,  -- стоимость сырья, ₸ за кг/л (оценка)
-    co2_factor REAL NOT NULL DEFAULT 0.627,  -- кг CO2e на кг при захоронении (DEFRA, пищевые)
+    co2_factor REAL NOT NULL DEFAULT 0.70021,  -- кг CO2e на кг при вывозе на полигон (DEFRA 2024)
+    category TEXT,                           -- Органические / Вторсырьё / Специальные / Смешанные
+    kg_per_unit REAL NOT NULL DEFAULT 1,     -- перевод в кг (масло: 1 л ≈ 0,92 кг)
+    rec_method_id INTEGER REFERENCES disposal_methods(id),  -- рекомендуемый способ
+    note TEXT,
     default_method_id INTEGER REFERENCES disposal_methods(id),
     active INTEGER NOT NULL DEFAULT 1        -- виды с записями не удаляются, только деактивируются
 );

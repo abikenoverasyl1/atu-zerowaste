@@ -16,7 +16,7 @@
   <p class="lead">{{ _('{span} в отходы ушло {mass} еды. Это {money} потерь.', span=span, mass=mass_html, money=money_html)|safe }}</p>
   <div class="facts">
     <div class="fact"><div class="v num">{{ fmt_big(per_month(t.money)) }}</div><div class="l">{{ _('теряем в месяц') }}</div></div>
-    <div class="fact"><div class="v num">{{ fmt_mass(t.co2) }}</div><div class="l">{{ _('CO₂ на полигоне') }}</div></div>
+    <div class="fact"><div class="v num">{{ fmt_mass(t.co2) }}</div><div class="l">{{ _('CO₂-экв выбросов') }} <small>({{ _('можно −{x} рекомендуемыми способами', x=fmt_mass(t.co2_potential)) }})</small></div></div>
     <div class="fact"><div class="v num">{{ '%.0f'|format(t.recycled_share) }}%</div><div class="l">{{ _('фактически переработано') }} <small>({{ _('можно {p}%', p='%.0f'|format(t.recyclable_share)) }})</small></div></div>
     <div class="fact"><div class="v num">{% if mom.pct is not none %}{{ '+' if mom.pct > 0 }}{{ '%.0f'|format(mom.pct) }}%{% else %}—{% endif %}</div>
       <div class="l">{{ _('{a} к {b}', a=mom.cur_label, b=mom.prev_label) }} <small>({{ _('за {n} дн.: {x} против {y}', n=mom.days, x=fmt_mass(mom.cur), y=fmt_mass(mom.prev)) }})</small></div></div>
@@ -60,12 +60,12 @@
     <div class="panel-title"><h2>{{ _('Что сделать') }}</h2><small>{{ _('экономия в месяц') }}</small></div>
     <div class="todo">
       {% for r in recs[:4] %}
-        <div class="todo-item"><div class="t">{{ r.title }}</div><div class="save num">≈ {{ fmt_big(r.impact) }}</div><div class="d">{{ r.text }}</div></div>
+        <div class="todo-item"><div class="t">{{ r.title }}</div><div class="save num">≈ {{ fmt_big(r.impact) }}{% if r.co2 %}<br><small>−{{ fmt_mass(r.co2) }} CO₂</small>{% endif %}</div><div class="d">{{ r.text }}</div></div>
       {% else %}<p class="muted">{{ _('Пока мало данных для советов.') }}</p>{% endfor %}
     </div>
     {% if recs|length > 4 %}
       <details class="more"><summary>{{ _('Ещё {n}', n=recs|length - 4) }}</summary>
-        {% for r in recs[4:] %}<div class="todo-item"><div class="t">{{ r.title }}</div><div class="save num">≈ {{ fmt_big(r.impact) }}</div><div class="d">{{ r.text }}</div></div>{% endfor %}
+        {% for r in recs[4:] %}<div class="todo-item"><div class="t">{{ r.title }}</div><div class="save num">≈ {{ fmt_big(r.impact) }}{% if r.co2 %}<br><small>−{{ fmt_mass(r.co2) }} CO₂</small>{% endif %}</div><div class="d">{{ r.text }}</div></div>{% endfor %}
       </details>
     {% endif %}
   </section>
