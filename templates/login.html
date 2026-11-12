@@ -4,7 +4,7 @@
 <div class="login">
   <span class="brand-mark" style="width:52px;height:52px;border-radius:16px;font-size:26px">♻</span>
   <h1>{{ _('Учёт пищевых отходов АТУ') }}</h1>
-  <p class="muted" style="margin-bottom:26px">{{ _('Взвесили — отметили за 15 секунд.') }}</p>
+  <p class="muted" style="margin-bottom:26px">{{ _('Взвесили — записали за 15 секунд.') }}</p>
   <form method="post" class="panel">
     <label class="field"><span>{{ _('Логин') }}</span><input class="input" name="login" id="login" autocomplete="username" autocapitalize="none" required autofocus></label>
     <label class="field"><span>{{ _('Пароль') }}</span><input class="input" name="password" id="password" type="password" autocomplete="current-password" required></label>
@@ -13,9 +13,11 @@
   <div style="margin-top:22px">
     <div class="muted" style="font-size:.92rem">{{ _('Демо-вход: нажмите на роль') }}</div>
     <div class="demo-logins">
-      <button type="button" data-l="lab_hleb">{{ _('Лаборант') }}</button>
-      <button type="button" data-l="stol1">{{ _('Столовая') }}</button>
-      <button type="button" data-l="inn">ATU Inn</button>
+      <button type="button" data-l="iskander">{{ _('Столовая «Искандер»') }}</button>
+      <button type="button" data-l="inn">ATU INN</button>
+      <button type="button" data-l="canella">{{ _('Кофейня Canella') }}</button>
+      <button type="button" data-l="kaf_tpp">{{ _('Кафедра ТПП') }}</button>
+      <button type="button" data-l="kaf_thipp">{{ _('Кафедра ТХиПП') }}</button>
       <button type="button" data-l="proverka">{{ _('Проверяющий') }}</button>
       <button type="button" data-l="rukovodstvo">{{ _('Руководство') }}</button>
       <button type="button" data-l="admin">{{ _('Админ') }}</button>
